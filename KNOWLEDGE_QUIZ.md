@@ -52,7 +52,7 @@ Caractéristiques clés : répétition espacée adaptative, fil multijoueur avec
 - `example_sentence`, `tips` (optionnels) — `tips` est un indice montré **pendant** la question
 - `extra_info` (optionnel, migration `vocab_extra_info.sql`) — infos complémentaires (temps du verbe, pluriel…) montrées **seulement à la correction** : feedback après réponse, Error Review, liste des mots ratés du résumé. Jamais pendant la question, ni au recto des fiches imprimées.
 - `is_system` (bool) — marque le vocabulaire fourni par le système
-- `flagged_at`, `flag_reason`, `flag_note` — signalement d'une mauvaise question depuis l'Error Review (voir §7bis). `flag_reason` ∈ `wrong_translation` | `typo` | `bad_example` | `other`. Colonnes portées par la ligne elle-même : **un seul flag actif par mot, pas d'historique**.
+- `flagged_at`, `flag_reason`, `flag_note` — flag d'un mot (Error Review, liste de vocabulaire ou pendant le test, voir §7bis). `flag_reason` ∈ `wrong_translation` | `typo` | `bad_example` | `to_study` | `other` — `to_study` est posé par le flag en un clic pendant le test ; colonne `text` sans contrainte. Colonnes portées par la ligne elle-même : **un seul flag actif par mot, pas d'historique**.
 - RLS `own_vocabulary` — couvre déjà les colonnes de flag, pas de policy supplémentaire
 
 **`quiz_progress`** — répétition espacée SM-2
@@ -183,7 +183,7 @@ Implémentation : `launchChallengeQuiz(wordSnapshots, wordIdsFallback, originalM
 
 ## 7. Flux UI/UX
 
-**Setup quiz** : paire de langue → direction → filtres (système, ratés/fragiles) → **plage de mots** → nombre de questions (5/10/20/50) → Start.
+**Setup quiz** : paire de langue → direction → filtres (système, ratés/fragiles) → **plage de mots** → nombre de questions (5/10/20/50/200/All) → Start. La note sous les boutons annonce la taille réelle de la série quand le plafond de nouveaux mots du jour la raccourcit (« cette session : N questions ») ; Start est désactivé si elle tombe à 0.
 
 > **Plage de mots** — deux champs `du n° … au n° …` qui restreignent la session à un intervalle de
 > numéros permanents (« je révise du mot 1 au 250 »). Les deux bornes sont facultatives : vide =
@@ -257,10 +257,10 @@ Implémentation : `launchChallengeQuiz(wordSnapshots, wordIdsFallback, originalM
 
 ## 7bis. Corriger ou flagger un mot depuis l'Error Review
 
-Deux gestes disponibles **uniquement sur l'écran Error Review** (`#quiz-review`), pas sur le
-feedback immédiat pendant le quiz. Ils répondent au même moment de doute — « cette correction est
-fausse » — selon qu'on sait ou non par quoi la remplacer : **corriger** quand on sait, **flagger**
-quand on ne sait pas.
+Deux gestes sur l'écran Error Review (`#quiz-review`). Ils répondent au même moment de doute —
+« cette correction est fausse » — selon qu'on sait ou non par quoi la remplacer : **corriger** quand
+on sait, **flagger** quand on ne sait pas. Corriger n'existe que là ; flagger est aussi possible
+**pendant le test**, en un clic (voir « Flagger pendant le test » plus bas).
 
 | Geste | Bouton | Écrit |
 |---|---|---|
@@ -359,6 +359,39 @@ active ; la ligne `🔔 N mots à réviser` ne dit « ensuite » que dans ce cas
 **jamais retiré automatiquement** après une bonne réponse — c'est à l'utilisateur de décider qu'un
 mot est acquis.
 
+### Flagger pendant le test
+
+Bouton **🚩 Flag** dans la ligne streak / timer de `#quiz-active`, visible avant **et** après la
+réponse (on flagge souvent en lisant la correction). Un clic pose le flag habituel sans quitter la
+question : `flagged_at` + `flag_reason: 'to_study'` + `flag_note: null`. Le motif et la note
+s'ajustent ensuite dans la review (pilule **To study**, présente aussi dans la liste via
+`FLAG_LABELS`).
+
+- **Trois états** (`syncQuizFlagBtn()`, appelée par `showQuestion()`) : `🚩 Flag` ;
+  `🚩 Flagged` (marqué dans ce test) ; `🚩 Already flagged`, en pointillé, pour un mot flaggé
+  **avant** le test — sinon, avec « En premier » ou le filtre 🚩 À étudier, toute la session
+  s'afficherait comme flaggée pendant le test et la review ne ferait plus le tri.
+- **Deux Sets** remis à zéro au départ de chaque session (`resetSessionFlags()`, y compris
+  Challenge Back) : `sessionFlaggedIds` (marqués dans ce test → review + résumé) et
+  `sessionFlagWrote` (dont ce test a lui-même posé le flag en base). Marquer un mot déjà flaggé
+  n'écrit rien ; démarquer n'efface que ce que le test a posé — un flag antérieur, avec son motif
+  et sa note, reste en place.
+- **Optimiste** : le Set change au clic, l'écriture (`saveWordPatch`) suit, et un échec remet
+  l'état d'avant. Sans ça, un timer qui expire pendant l'écriture fermerait la session sans le mot.
+  `sessionFlagBusy` ignore un second clic sur le même mot tant que l'écriture court.
+- Après le clic, le focus revient au champ de réponse (ou à `Next`) : on continue de taper.
+  Le timer ne s'arrête pas, le score et le SRS ne bougent pas.
+- Mot sans `id` (snapshot cross-user) : bouton masqué, comme les outils de la review.
+
+**Review** : `endSession()` y envoie les erreurs **et** les mots de `sessionFlaggedIds` — même
+répondus juste ou passés —, dans l'ordre de la session. Le titre suit le contenu (`🔍 Error Review`,
+`🚩 Flagged words` ou `🔍 Errors & 🚩 flagged words`), une pastille « 🚩 Flagged during the test »
+marque ces mots, et une bonne réponse s'affiche en vert (`✅ Your answer`) au lieu d'être barrée.
+
+**Résumé** : section **🚩 Flagged during this test**, au-dessus de « Words to review » — mot,
+motif, traduction. N'y restent que les mots **toujours** flaggés : un flag retiré ou un mot
+supprimé pendant la review en sort.
+
 ### Flagger depuis la liste de vocabulaire
 
 Le même geste est disponible hors session, via le bouton 🚩 de la colonne Actions. La ligne est
@@ -402,6 +435,7 @@ let vocabDirty = false      // mot corrigé/flaggé en review → recharger plus
 | `saveWordPatch(id, patch)` | Écriture ciblée d'un patch sur un mot — mute l'objet en place, marque `vocabDirty`, **ne recharge pas** le vocabulaire. Partagée par la review et le flag depuis la liste (§7bis). |
 | `flushVocabDirty()` | Repagination différée, une seule fois, hors review. |
 | `startFlag(id)` / `renderFlagRow(word)` | Éditeur de flag en ligne dans la liste de vocabulaire (§7bis). |
+| `syncQuizFlagBtn()` / `resetSessionFlags()` | Flag pendant le test : état du bouton 🚩 de la question courante, remise à zéro des Sets de session (§7bis). |
 | `computeVocabNumbers()` | Numéro permanent de chaque mot = rang de création (§7). Appelée par `loadVocab()`. |
 | `sortVocabList(list)` | Tri de la liste selon `sortCol` / `sortDir`, vides en bas (§7). |
 | `filterVocabForQuiz(filter)` | Filtres du quiz : langue, système, **plage de numéros** (§7). |

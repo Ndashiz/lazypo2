@@ -130,7 +130,7 @@ create policy "own_vocabulary" on public.vocabulary
 -- alter table public.vocabulary add column if not exists is_system boolean default false;
 -- alter table public.vocabulary add column if not exists tips text;
 -- alter table public.vocabulary add column if not exists extra_info text;   (vocab_extra_info.sql)
--- Flag d'un mot depuis l'Error Review — flag_reason ∈ {wrong_translation, typo, bad_example, other}
+-- Flag d'un mot (Error Review, liste, ou pendant le test) — flag_reason ∈ {wrong_translation, typo, bad_example, to_study, other}
 -- alter table public.vocabulary add column if not exists flagged_at  timestamptz;
 -- alter table public.vocabulary add column if not exists flag_reason text;
 -- alter table public.vocabulary add column if not exists flag_note   text;
@@ -1156,6 +1156,26 @@ body { padding-left: 64px; }
   margin-top: 10px; font-size: 11.5px; line-height: 1.5; color: var(--muted);
 }
 .flag-badge { margin-left: 6px; font-size: 12px; cursor: help; }
+
+/* Flag pendant le test — dans la ligne streak / timer, poussé à droite.
+   Pointillé = déjà flaggé avant le test, pas encore marqué pour la review. */
+.qz-quiz-flag { margin-left: auto; margin-right: 12px; padding: 5px 12px; font-size: 12.5px; }
+.qz-quiz-flag.pre-flagged { color: var(--warning); border-style: dashed; border-color: rgba(245,158,11,.4); }
+.review-asked-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 10px;
+}
+.review-asked-row .review-asked-label { margin-bottom: 0; }
+.review-flag-chip {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 600; color: var(--warning);
+  background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3);
+}
+.qz-flag-reason { color: var(--warning); font-size: 11px; font-weight: 500; opacity: .85; }
+.qz-flagged-hint {
+  padding: 10px 16px; font-size: 12px; color: var(--muted);
+  border-top: 1px solid var(--border); background: var(--surface2);
+}
 
 /* Plage de mots dans le setup du quiz */
 .qz-range-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -2528,6 +2548,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <button class="qz-count-btn active" data-count="10">10</button>
             <button class="qz-count-btn" data-count="20">20</button>
             <button class="qz-count-btn" data-count="50">50</button>
+            <button class="qz-count-btn" data-count="200">200</button>
             <button class="qz-count-btn" data-count="all">All</button>
           </div>
           <p class="qz-avail-note" id="avail-note"></p>
@@ -2550,6 +2571,8 @@ tr.row-selected { background: rgba(59,130,246,.05); }
 
       <div class="qz-quiz-meta-row">
         <div class="qz-streak-badge" id="quiz-streak-badge" style="display:none;">🔥 <span id="quiz-streak-val">0</span></div>
+        <!-- Flag pendant le test : le mot rejoint la review de fin de test (§7bis) -->
+        <button class="btn-ghost qz-quiz-flag" id="btn-quiz-flag" type="button" aria-pressed="false">🚩 Flag</button>
         <div class="qz-timer-ring" id="quiz-timer">
           <svg width="44" height="44" viewBox="0 0 44 44">
             <circle cx="22" cy="22" r="18" fill="none" stroke="var(--border2)" stroke-width="3"/>
@@ -2593,17 +2616,20 @@ tr.row-selected { background: rgba(59,130,246,.05); }
     <div id="quiz-review" class="qz-card" style="display:none;">
       <div class="qz-review-wrap">
         <div class="review-header">
-          <span class="review-title">🔍 Error Review</span>
+          <span class="review-title" id="review-title">🔍 Error Review</span>
           <span class="review-counter" id="review-counter">1 / 1</span>
         </div>
         <div class="review-prog-bar">
           <div class="review-prog-bar-fill" id="review-prog-fill" style="width:0%"></div>
         </div>
-        <div class="review-asked-label">You were asked to translate:</div>
+        <div class="review-asked-row">
+          <div class="review-asked-label">You were asked to translate:</div>
+          <span class="review-flag-chip" id="review-flag-chip" style="display:none;">🚩 Flagged during the test</span>
+        </div>
         <div class="review-word-box" id="review-asked">—</div>
         <div class="review-compare">
           <div>
-            <div class="review-col-label wrong">❌ Your answer</div>
+            <div class="review-col-label wrong" id="review-given-label">❌ Your answer</div>
             <div class="review-answer-box wrong" id="review-given">—</div>
           </div>
           <div class="review-arrow">→</div>
@@ -2657,6 +2683,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <button class="qz-pill active" data-flag-reason="wrong_translation">Wrong translation</button>
             <button class="qz-pill"        data-flag-reason="typo">Typo / spelling</button>
             <button class="qz-pill"        data-flag-reason="bad_example">Bad example sentence</button>
+            <button class="qz-pill"        data-flag-reason="to_study">To study</button>
             <button class="qz-pill"        data-flag-reason="other">Something else</button>
           </div>
           <div class="review-panel-label">Note <span class="review-panel-opt">(optional)</span></div>
@@ -2713,6 +2740,12 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <span class="sf-lbl">Total answers ever</span>
           </div>
         </div>
+      </div>
+
+      <div id="flagged-section" class="qz-missed-list" style="display:none;">
+        <div class="qz-missed-header">🚩 Flagged during this test</div>
+        <div id="flagged-list"></div>
+        <div class="qz-flagged-hint">They stay flagged — pick <strong>🚩 À étudier</strong> in the quiz setup to drill them.</div>
       </div>
 
       <div id="missed-section" class="qz-missed-list" style="display:none;">
@@ -3503,6 +3536,7 @@ const FLAG_LABELS = {
   wrong_translation: 'Wrong translation',
   typo:              'Typo / spelling',
   bad_example:       'Bad example sentence',
+  to_study:          'To study',   // posé en un clic pendant le test (§7bis)
   other:             'Something else',
 };
 
@@ -4757,11 +4791,22 @@ function updateAvailNote() {
 
   const flaggedCount = filtered.filter(w => w.flagged_at).length;
 
+  // Taille réelle de la session : le plafond de nouveaux mots peut ramener une
+  // série de 200 bien en dessous — le dire avant le départ plutôt qu'à la
+  // dernière question. Mêmes buckets que buildQuizQueue() : avec « En premier »,
+  // les flaggés échappent au plafond.
+  const cappedFresh = filtered.filter(w => {
+    const p = progress[w.id];
+    return (!p || !p.attempts) && !(flaggedFirst && w.flagged_at);
+  }).length;
+  const reachable = avail - Math.max(0, cappedFresh - newAllowance);
+  const wanted    = quizCount === 'all' ? avail : Math.min(quizCount, avail);
+
   if (note) {
     let txt;
     if (avail === 0 && quizFilter === 'flagged') {
       // Dire quoi faire, pas seulement qu'il n'y a rien
-      txt = 'Aucun mot flaggé — signale un mot avec 🚩 depuis la liste de vocabulaire ou l\'Error Review.';
+      txt = 'Aucun mot flaggé — signale un mot avec 🚩 pendant un test, depuis l\'Error Review ou la liste de vocabulaire.';
     } else {
       txt = `${avail} word${avail !== 1 ? 's' : ''} available`;
       if (freshCount > 0 && newAllowance === 0) {
@@ -4769,10 +4814,15 @@ function updateAvailNote() {
       } else if (freshCount > newAllowance) {
         txt += ` · ${newAllowance} nouveau${newAllowance > 1 ? 'x' : ''} mot${newAllowance > 1 ? 's' : ''} max aujourd'hui`;
       }
+      if (reachable < wanted) {
+        txt += ` · cette session : ${reachable} question${reachable !== 1 ? 's' : ''}`;
+      }
     }
     note.textContent = txt;
   }
-  if (startBtn) startBtn.disabled = avail === 0;
+  // reachable === 0 : tout est nouveau et le plafond du jour est atteint — une
+  // file vide planterait showQuestion()
+  if (startBtn) startBtn.disabled = reachable === 0;
 
   // Option « Mots à étudier » : visible dès qu'un mot est flaggé quelque part
   // (sur tout le vocabulaire, pour qu'elle n'apparaisse pas et ne disparaisse pas
@@ -4927,6 +4977,7 @@ function shuffle(arr) {
 /* Start quiz */
 document.getElementById('btn-start-quiz').addEventListener('click', () => {
   sessionAnswers = [];
+  resetSessionFlags();
   sessionStartTime = Date.now();
   quizQueue  = buildQuizQueue(quizFilter, quizCount, quizMode);
   quizIndex  = 0;
@@ -5011,6 +5062,8 @@ function showQuestion() {
   const prevBtn = document.getElementById('btn-prev');
   if (prevBtn) prevBtn.style.display = quizIndex > 0 ? 'inline-flex' : 'none';
 
+  syncQuizFlagBtn();
+
   // Show streak
   const streakBadge = document.getElementById('quiz-streak-badge');
   const streakVal   = document.getElementById('quiz-streak-val');
@@ -5063,6 +5116,69 @@ document.getElementById('btn-prev').addEventListener('click', () => {
   }
   quizIndex--;
   showQuestion();
+});
+
+/* ── Flag pendant le test ──────────────────────────────────────────
+   Le même flag que depuis l'Error Review ou la liste (flagged_at…), posé en
+   un clic sans quitter la question, motif « to_study » — ajustable ensuite
+   dans la review. Un mot flaggé ici rejoint la review de fin de test même
+   répondu juste ou passé. Ni le score, ni le SRS, ni le timer ne bougent. */
+const sessionFlaggedIds = new Set();   // flaggés pendant CE test → review + résumé
+const sessionFlagWrote  = new Set();   // …dont ce test a lui-même posé le flag en base
+const sessionFlagBusy   = new Set();   // écriture en cours — un double clic croiserait deux écritures
+
+function resetSessionFlags() {
+  sessionFlaggedIds.clear();
+  sessionFlagWrote.clear();
+}
+
+function syncQuizFlagBtn() {
+  const btn  = document.getElementById('btn-quiz-flag');
+  const word = quizQueue[quizIndex]?.word;
+  // Sans id (snapshot cross-user) il n'y a rien à écrire : bouton masqué
+  if (!word || !word.id) { btn.style.display = 'none'; return; }
+  btn.style.display = 'inline-flex';
+  const marked = sessionFlaggedIds.has(word.id);
+  const pre    = !marked && !!word.flagged_at;   // flaggé avant le test
+  btn.classList.toggle('flagged', marked);
+  btn.classList.toggle('pre-flagged', pre);
+  btn.setAttribute('aria-pressed', marked ? 'true' : 'false');
+  btn.textContent = marked ? '🚩 Flagged' : pre ? '🚩 Already flagged' : '🚩 Flag';
+  btn.title = marked ? 'Flaggé — tu le reverras dans la review de fin de test. Re-clique pour annuler.'
+            : pre    ? 'Déjà dans tes mots à étudier — clique pour le revoir dans la review de fin de test.'
+            :          'Flagger ce mot — tu le reverras dans la review de fin de test.';
+}
+
+document.getElementById('btn-quiz-flag').addEventListener('click', async () => {
+  const word = quizQueue[quizIndex]?.word;
+  if (!word || !word.id || sessionFlagBusy.has(word.id)) return;
+  const id = word.id;
+
+  // Optimiste : le Set change tout de suite, pour qu'un timer qui expire
+  // pendant l'écriture termine la session avec le bon état de review.
+  const marking = !sessionFlaggedIds.has(id);
+  if (marking) sessionFlaggedIds.add(id); else sessionFlaggedIds.delete(id);
+  syncQuizFlagBtn();
+  // Rendre le clavier à la question : on continue de taper sa réponse
+  const input = document.getElementById('quiz-answer-input');
+  if (!input.disabled) input.focus(); else document.getElementById('btn-next').focus();
+
+  // En base : poser le flag s'il n'y en avait pas ; en le retirant, ne défaire
+  // que ce que ce test a posé — un flag antérieur au test reste en place.
+  const patch = marking
+    ? (word.flagged_at ? null : { flagged_at: new Date().toISOString(), flag_reason: 'to_study', flag_note: null })
+    : (sessionFlagWrote.has(id) ? { flagged_at: null, flag_reason: null, flag_note: null } : null);
+  if (!patch) return;
+
+  sessionFlagBusy.add(id);
+  const ok = await saveWordPatch(id, patch);   // toast d'erreur géré par saveWordPatch
+  sessionFlagBusy.delete(id);
+  if (ok) {
+    if (marking) sessionFlagWrote.add(id); else sessionFlagWrote.delete(id);
+  } else {
+    if (marking) sessionFlaggedIds.delete(id); else sessionFlaggedIds.add(id);
+  }
+  syncQuizFlagBtn();   // la question a pu changer pendant l'écriture : resynchroniser sur la courante
 });
 
 function checkAnswer() {
@@ -5366,11 +5482,21 @@ function endSession() {
   saveQuizSession(total, correct, durationSec);
   postMultiSession(correct, total, durationSec, 'vocab', quizFilter || 'all', quizMode || 'auto', sessionWordIds);
 
-  const wrong = sessionAnswers.filter(a => !a.correct && !a.skipped);
-  if (wrong.length > 0) {
+  // Review : les erreurs, plus les mots flaggés pendant le test — même répondus
+  // juste ou passés —, dans l'ordre de la session.
+  const isWrong   = a => !a.correct && !a.skipped;
+  const isFlagged = a => !!(a.word.id && sessionFlaggedIds.has(a.word.id));
+  const toReview  = sessionAnswers.filter(a => isWrong(a) || isFlagged(a));
+  if (toReview.length > 0) {
     // Show review first
-    reviewQueue = wrong;
+    reviewQueue = toReview;
     reviewIndex = 0;
+    const nWrong   = toReview.filter(isWrong).length;
+    const nFlagged = toReview.filter(isFlagged).length;
+    document.getElementById('review-title').textContent =
+        !nFlagged ? '🔍 Error Review'
+      : !nWrong   ? '🚩 Flagged words'
+      :             '🔍 Errors & 🚩 flagged words';
     document.getElementById('quiz-active').style.display  = 'none';
     document.getElementById('quiz-review').style.display  = 'block';
     document.getElementById('quiz-summary').style.display = 'none';
@@ -5405,13 +5531,20 @@ function showReviewItem() {
   infoEl.textContent    = a.word.extra_info ? 'ℹ️ ' + a.word.extra_info : '';
   infoEl.style.display  = a.word.extra_info ? 'block' : 'none';
 
-  const givenEl = document.getElementById('review-given');
+  // Mot flaggé pendant le test : il est là pour ça, pas forcément pour une erreur
+  document.getElementById('review-flag-chip').style.display =
+    a.word.id && sessionFlaggedIds.has(a.word.id) ? 'inline-flex' : 'none';
+
+  const givenEl  = document.getElementById('review-given');
+  const givenLbl = document.getElementById('review-given-label');
+  givenLbl.textContent = a.correct ? '✅ Your answer' : '❌ Your answer';
+  givenLbl.className   = 'review-col-label ' + (a.correct ? 'right' : 'wrong');
   if (!a.givenAnswer) {
     givenEl.textContent = '(skipped)';
     givenEl.className   = 'review-answer-box skipped';
   } else {
     givenEl.textContent = a.givenAnswer;
-    givenEl.className   = 'review-answer-box wrong';
+    givenEl.className   = 'review-answer-box ' + (a.correct ? 'right' : 'wrong');
   }
 
   const prevBtn = document.getElementById('review-btn-prev');
@@ -5683,6 +5816,27 @@ function showSummary() {
 
   const stars = pct >= 80 ? '⭐⭐⭐' : pct >= 50 ? '⭐⭐' : '⭐';
   document.getElementById('summary-stars').textContent = stars;
+
+  // Mots flaggés pendant le test et toujours flaggés : un flag retiré ou un mot
+  // supprimé pendant la review sort de la liste. Dédoublonné par id.
+  const flaggedWords = [...new Map(sessionAnswers
+    .map(a => a.word)
+    .filter(w => w.id && sessionFlaggedIds.has(w.id) && w.flagged_at && !reviewDeletedIds.has(w.id))
+    .map(w => [w.id, w])).values()];
+  const flaggedSec = document.getElementById('flagged-section');
+  flaggedSec.style.display = flaggedWords.length ? 'block' : 'none';
+  document.getElementById('flagged-list').innerHTML = flaggedWords.map(w => {
+    const reason = FLAG_LABELS[w.flag_reason] || 'Flagged';
+    return `
+      <div class="qz-missed-item">
+        <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);">${escHtml(w.language_pair)}</span>
+          <span class="qz-missed-word">${escHtml(w.source_word)}</span>
+          <span class="qz-flag-reason" title="${escHtml(w.flag_note || '')}">${escHtml(reason)}</span>
+        </span>
+        <span class="qz-missed-answer">→ ${escHtml(w.target_translation)}</span>
+      </div>`;
+  }).join('');
 
   const missed = sessionAnswers.filter(a => !a.correct);
   const missedSec  = document.getElementById('missed-section');
@@ -7200,6 +7354,7 @@ function launchChallengeQuiz(wordIds) {
   const words = vocab.filter(w => wordIds.includes(w.id));
   if (!words.length) { showToast('Mots non disponibles'); return; }
   sessionAnswers = [];
+  resetSessionFlags();
   sessionStartTime = Date.now();
   quizQueue = words.map(word => {
     const dir = Math.random() < 0.5 ? 'forward' : 'reverse';

@@ -2407,6 +2407,19 @@ graph TB
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
 
+    <h3>Septembre 2026 — 🚩 Quiz : flagger un mot pendant le test, séries de 200</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Bouton <strong>🚩 Flag</strong> à côté du timer : un clic pose le flag habituel
+          (<code>flagged_at</code>, motif <code>to_study</code>) sans quitter la question ; re-cliquer ne défait
+          que ce que le test a posé. Les mots flaggés rejoignent la review de fin de test même répondus juste
+          ou passés, avec une pastille « Flagged during the test », et sont listés dans le résumé. Ni score,
+          ni SRS, ni timer ne bougent.</li>
+      <li>Nouveau motif <code>to_study</code> (« To study ») pour tous les éditeurs de flag — colonne
+          <code>text</code> sans contrainte, pas de migration.</li>
+      <li>Option <strong>200</strong> questions. La note du setup annonce la taille réelle de la série quand le
+          plafond de 15 nouveaux mots/jour la raccourcit, et Start est désactivé si elle tombe à 0.</li>
+    </ul>
+
     <h3>Septembre 2026 — 🎛️ Interrupteurs globaux pilotés depuis Jarvis</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">
       <li>Nouvelle table <code>app_settings</code> (<code>app_settings_schema.sql</code>) avec trois
