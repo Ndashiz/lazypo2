@@ -1075,6 +1075,7 @@ erDiagram
         <tr><td>flagged_at</td><td>timestamptz</td><td></td><td>Mot dans « Étudier plus tard » (flag posé pendant le test, en review ou depuis la liste) — <code>null</code> = pas de flag</td></tr>
         <tr><td>flag_reason</td><td>text</td><td>check : <code>null</code> ou <code>to_study</code></td><td>Toujours <code>to_study</code> quand le mot est flaggé : « Étudier plus tard » est la seule catégorie (<code>vocab_flag_single.sql</code>)</td></tr>
         <tr><td>flag_note</td><td>text</td><td></td><td>Plus saisie. Une note héritée reste lisible au survol du badge 🚩 et part au retrait du flag</td></tr>
+        <tr><td>suspended_at</td><td>timestamptz</td><td></td><td>Mot suspendu depuis l'atelier sangsues : exclu de toutes les séries (<code>quiz_srs_v2.sql</code>)</td></tr>
         <tr><td>created_at</td><td>timestamptz</td><td>default now()</td><td></td></tr>
         <tr><td>updated_at</td><td>timestamptz</td><td>default now()</td><td></td></tr>
       </tbody>
@@ -1098,9 +1099,47 @@ erDiagram
         <tr><td>last_tested</td><td>timestamptz</td><td></td><td>Dernière révision</td></tr>
         <tr><td>ease_factor</td><td>float</td><td>default 2.5</td><td>Facteur SM-2 (2.5 = neutre, min 1.3)</td></tr>
         <tr><td>interval_days</td><td>int</td><td>default 1</td><td>Intervalle avant prochaine révision (jours)</td></tr>
+        <tr><td>recent</td><td>jsonb</td><td>default '[]'</td><td>10 dernières réponses (1/0) — fenêtre glissante de maîtrise</td></tr>
+        <tr><td>stage</td><td>text</td><td></td><td>Étape du mot : <code>learn</code>, <code>recv</code> (réception NL→FR), <code>prod</code> (production FR→NL) ; null + 0 tentative = nouveau</td></tr>
+        <tr><td>lapses</td><td>int</td><td></td><td>Oublis depuis le dernier atelier — sangsue à 4 oublis sous 50 % de réussite</td></tr>
+        <tr><td>first_tested</td><td>timestamptz</td><td></td><td>Première question posée — compte les nouveaux mots du jour, tous appareils</td></tr>
       </tbody>
     </table>
-    <p><strong>Contrainte unique :</strong> <code>(user_id, word_id)</code> — un seul enregistrement de progression par mot par utilisateur.</p>
+    <p><strong>Contrainte unique :</strong> <code>(user_id, word_id)</code> — un seul enregistrement de progression par mot par utilisateur.
+       Les colonnes <code>recent</code>, <code>stage</code>, <code>lapses</code> et <code>first_tested</code> viennent de
+       <code>quiz_srs_v2.sql</code> (à lancer à la main), qui ramène aussi à 30 jours les intervalles gonflés par l'ancien moteur.</p>
+
+    <h3>quiz_answers</h3>
+    <table class="data-table">
+      <thead><tr><th>Colonne</th><th>Type</th><th>Contrainte</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>id</td><td>bigint</td><td>PK identity</td><td></td></tr>
+        <tr><td>user_id</td><td>uuid</td><td>FK → auth.users (cascade)</td><td></td></tr>
+        <tr><td>word_id</td><td>uuid</td><td>FK → vocabulary (set null)</td><td></td></tr>
+        <tr><td>session_key / mode</td><td>text</td><td></td><td>Séance (clé côté client) et type : <code>daily</code>, <code>free</code>, <code>challenge</code>, <code>atelier</code></td></tr>
+        <tr><td>answered_at</td><td>timestamptz</td><td>default now()</td><td></td></tr>
+        <tr><td>direction / stage</td><td>text</td><td></td><td>Sens de la question ; étape du mot avant la réponse</td></tr>
+        <tr><td>grade</td><td>smallint</td><td></td><td>1 raté · 2 difficile · 3 bien · 4 facile — null pour une re-question</td></tr>
+        <tr><td>correct / close_match</td><td>boolean</td><td></td><td>Réponse acceptée ; acceptée « proche »</td></tr>
+        <tr><td>first_key_ms / total_ms</td><td>int</td><td></td><td>Temps avant la première frappe ; temps total</td></tr>
+        <tr><td>is_new / is_relearn / is_leech</td><td>boolean</td><td></td><td>Mot découvert ; re-question ou rappel d'atelier ; sangsue au moment de la réponse</td></tr>
+        <tr><td>was_due / elapsed_days</td><td>boolean / real</td><td></td><td>Le mot était-il dû ; jours depuis la question précédente</td></tr>
+        <tr><td>interval_before / interval_after</td><td>int</td><td></td><td>Intervalle avant et après la réponse</td></tr>
+      </tbody>
+    </table>
+    <p>Journal des réponses : source des KPI de l'onglet Progress et du régulateur. RLS <code>own_answers</code>,
+       index <code>(user_id, answered_at desc)</code>.</p>
+
+    <h3>quiz_settings</h3>
+    <table class="data-table">
+      <thead><tr><th>Colonne</th><th>Type</th><th>Contrainte</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>user_id</td><td>uuid</td><td>PK, FK → auth.users</td><td></td></tr>
+        <tr><td>new_per_day</td><td>int</td><td>default 8</td><td>Budget quotidien de nouveaux mots, ajusté par le régulateur (3 à 20)</td></tr>
+        <tr><td>adjusted_on</td><td>date</td><td></td><td>Jour local du dernier passage du régulateur</td></tr>
+        <tr><td>last_reason</td><td>text</td><td></td><td>Pourquoi le budget a bougé (ou pas), affiché dans le quiz</td></tr>
+      </tbody>
+    </table>
 
     <h3>livenote_docs</h3>
     <table class="data-table">
@@ -2408,6 +2447,24 @@ graph TB
     </div>
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
+
+    <h3>Octobre 2026 — 🧠 Quiz : moteur d'apprentissage v2 — séance du jour, parcours, KPI</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Suite à l'audit du 4 octobre : les nouveaux mots ne recevaient que les places restantes après les
+          révisions dues (0 par série de 5 à 200 questions), les échecs revenaient sans avoir été réappris, et les
+          révisions anticipées gonflaient les intervalles (jusqu'à 76 488 jours).</li>
+      <li><strong>📅 Séance du jour</strong>, composée par le moteur : budget de nouveaux mots réservé (un toutes les 3
+          à 4 questions, tes ajouts récents d'abord), révisions par risque d'oubli, sangsues plafonnées à 10 %, aucun
+          mot non dû en remplissage. Les réglages d'avant restent sous <strong>🎛️ Entraînement libre</strong>.</li>
+      <li>Parcours d'un mot : découverte → apprentissage (J+1) → réception NL→FR → production FR→NL (à 7 jours) →
+          acquis à 21 jours, phrase à trou pour les mots acquis. Notation automatique à 4 niveaux (temps avant la
+          première frappe, faute de frappe, article néerlandais), révision en avance sans gonflement.</li>
+      <li>Re-questions dans la séance (hors score), « Skip » et chrono écoulé qui montrent la réponse et la fiche,
+          « Précédent » en lecture seule, atelier sangsues (astuce, 3 rappels, suspension), drapeaux de langue.</li>
+      <li>Journal <code>quiz_answers</code>, régulateur quotidien du budget (<code>quiz_settings</code>), tableau de bord
+          KPI dans Progress, XP réalignée (séance du jour, mots acquis, rétention, retard soldé). Migration
+          <code>quiz_srs_v2.sql</code> à lancer à la main ; sans elle, le front fonctionne en mode dégradé.</li>
+    </ul>
 
     <h3>Octobre 2026 — ⏹ Quiz : arrêter une série en cours et voir la correction</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">

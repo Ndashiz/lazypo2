@@ -132,6 +132,8 @@ create policy "own_vocabulary" on public.vocabulary
 -- alter table public.vocabulary add column if not exists extra_info text;   (vocab_extra_info.sql)
 -- Flag d'un mot (Error Review, liste, ou pendant le test) = « Étudier plus tard », seule catégorie :
 -- flag_reason vaut toujours 'to_study' (contrainte CHECK + remap des anciens motifs : vocab_flag_single.sql)
+-- Moteur v2 (quiz_srs_v2.sql) : quiz_progress.stage / lapses / first_tested / recent, vocabulary.suspended_at,
+-- tables quiz_answers (journal des réponses) et quiz_settings (budget de nouveaux mots du régulateur)
 -- alter table public.vocabulary add column if not exists flagged_at  timestamptz;
 -- alter table public.vocabulary add column if not exists flag_reason text;
 -- alter table public.vocabulary add column if not exists flag_note   text;
@@ -1164,6 +1166,90 @@ body { padding-left: 64px; }
 /* Arrêter la série en cours — armé au premier clic, le second confirme (pas de confirm() : iframe Jarvis) */
 .qz-stop-btn.armed { color: var(--warning); border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.1); }
 .qz-stopped-note { font-size: 13px; line-height: 1.5; color: var(--muted); }
+.qz-summary-notes { margin-top: 8px; font-size: 13px; line-height: 1.6; color: var(--text); opacity: .85; }
+
+/* ── Moteur v2 ───────────────────────────────────────────── */
+/* Drapeaux en SVG inline : sous Windows, les emoji drapeaux s'affichent en lettres */
+.qz-flag { display: inline-block; width: 21px; height: 14px; border-radius: 3px; overflow: hidden; flex: none;
+  vertical-align: -2px; box-shadow: 0 0 0 1px rgba(255,255,255,.18); }
+.qz-flag svg { display: block; width: 100%; height: 100%; }
+.qz-answer-field { flex: 1; position: relative; display: flex; min-width: 0; }
+.qz-answer-field .qz-answer-input { width: 100%; padding-left: 48px; }
+.qz-answer-flag { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); display: flex; pointer-events: none; }
+
+/* Note automatique, affichée avec la correction */
+.qz-grade { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 20px; border: 1px solid;
+  font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; vertical-align: 1px; }
+.qz-grade.g1 { color: #fca5a5; border-color: rgba(239,68,68,.4); }
+.qz-grade.g2 { color: #fbbf24; border-color: rgba(245,158,11,.4); }
+.qz-grade.g3 { color: #86efac; border-color: rgba(34,197,94,.4); }
+.qz-grade.g4 { color: #93c5fd; border-color: rgba(96,165,250,.45); }
+
+/* Fiche du mot : à la découverte, après une erreur ou un « Skip » — encoder avant de re-tester */
+.qz-word-card { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,.04);
+  border: 1px solid var(--border2); color: var(--text); font-weight: 400; text-align: left; display: grid; gap: 6px; }
+.qz-wc-main { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 15px; }
+.qz-wc-arrow { color: var(--muted); }
+.qz-wc-ex { font-size: 13px; color: var(--muted); font-style: italic; }
+.qz-wc-tip { font-size: 13px; color: #fbbf24; }
+.qz-word-card .qz-extra-info { margin-top: 0; }
+.qz-relearn-note { margin-top: 8px; font-size: 12px; color: var(--muted); font-weight: 400; }
+
+/* Setup : séance du jour ou entraînement libre */
+.qz-setup-modes { display: flex; gap: 6px; padding: 4px; margin: -8px 0 24px; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: 12px; }
+.qz-setup-mode { flex: 1; padding: 10px 12px; border: none; border-radius: 9px; background: transparent; color: var(--muted);
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: background .15s, color .15s; }
+.qz-setup-mode.active { background: rgba(59,130,246,.15); color: var(--accent2); }
+.qz-setup-mode:hover:not(.active) { color: var(--text); }
+.daily-summary { margin: 4px 0 10px; padding: 14px 16px; border-radius: 12px; background: rgba(59,130,246,.06);
+  border: 1px solid rgba(96,165,250,.18); display: grid; gap: 6px; font-size: 14px; }
+.daily-summary .dp-line b { color: var(--accent2); }
+.daily-summary .dp-meta { font-size: 12.5px; color: var(--muted); }
+.daily-summary .dp-reason { font-size: 12.5px; color: var(--text); opacity: .85; }
+#btn-open-atelier { margin: 4px 0 18px; }
+
+/* Atelier sangsues */
+.atl-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.atl-title { font-size: 18px; font-weight: 700; }
+.atl-intro { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
+.atl-count { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 4px; }
+.atl-label { display: block; margin: 14px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.atl-tip { width: 100%; min-height: 72px; padding: 10px 12px; resize: vertical; background: var(--surface);
+  border: 1px solid var(--border2); border-radius: var(--r); color: var(--text); font-family: 'DM Sans', sans-serif;
+  font-size: 14px; outline: none; }
+.atl-tip:focus { border-color: var(--accent); }
+.atl-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.atl-actions .danger { margin-left: auto; }
+.atl-ready { display: grid; gap: 12px; font-size: 14px; line-height: 1.5; }
+.atl-sub { margin: 24px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); font-family: 'DM Mono', monospace; }
+.atl-susp-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0;
+  border-top: 1px solid var(--border); font-size: 13px; }
+.atl-empty { font-size: 13px; color: var(--muted); }
+.susp-badge { margin-left: 6px; font-size: 12px; cursor: help; }
+
+/* Onglet Progress : pilotage de l'apprentissage */
+.kpi-section { margin-bottom: 28px; }
+.kpi-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.kpi-title { font-size: 16px; font-weight: 700; }
+.kpi-sub { font-size: 12px; color: var(--muted); }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px;
+  display: grid; gap: 4px; align-content: start; }
+.kpi-card.star { border-color: rgba(96,165,250,.35); background: rgba(59,130,246,.06); }
+.kpi-label { font-size: 12px; color: var(--muted); line-height: 1.35; }
+.kpi-value { font-size: 24px; font-weight: 700; line-height: 1.15; }
+.kpi-target { font-size: 12px; color: var(--muted); }
+.kpi-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+.kpi-status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--st); }
+.kpi-status.good { --st: var(--success); color: #86efac; }
+.kpi-status.warn { --st: var(--warning); color: #fbbf24; }
+.kpi-status.bad  { --st: var(--danger);  color: #fca5a5; }
+.kpi-status.na   { --st: var(--muted);   color: var(--muted); }
+.kpi-stages { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.kpi-stages b { color: var(--text); }
+.kpi-note { margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .review-asked-row {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   flex-wrap: wrap; margin-bottom: 10px;
@@ -2029,7 +2115,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
   .qz-setup-card, .qz-question-card { padding: 24px 18px; }
   /* Réponse : le champ prend toute la largeur, Check / Skip dessous côte à côte */
   .qz-answer-row { flex-wrap: wrap; }
-  .qz-answer-input { flex: 1 1 100%; }
+  .qz-answer-field { flex: 1 1 100%; }
   #btn-check, #btn-skip { flex: 1 1 0; padding: 12px 16px !important; }
   .qz-action-row > button { flex: 1 1 auto; }
   #btn-quiz-stop { flex: 0 0 auto; }   /* reste à sa taille, à droite : pas un bouton principal */
@@ -2461,6 +2547,27 @@ tr.row-selected { background: rgba(59,130,246,.05); }
         <h2>Start a Quiz Session</h2>
         <p class="subtitle">Choose your options and test your knowledge.</p>
 
+        <!-- Séance du jour (composée par le moteur) ou entraînement libre (réglages à la main) -->
+        <div class="qz-setup-modes" role="tablist" aria-label="Type de séance">
+          <button class="qz-setup-mode active" data-setup-mode="daily" role="tab" aria-selected="true">📅 Séance du jour</button>
+          <button class="qz-setup-mode" data-setup-mode="free" role="tab" aria-selected="false">🎛️ Entraînement libre</button>
+        </div>
+
+        <div id="daily-panel">
+          <div class="qz-option-group">
+            <div class="qz-option-label">Longueur</div>
+            <div class="qz-count-group" id="daily-size-btns" role="group" aria-label="Longueur de la séance">
+              <button class="qz-count-btn" data-size="10">10</button>
+              <button class="qz-count-btn active" data-size="20">20</button>
+              <button class="qz-count-btn" data-size="50">50</button>
+            </div>
+          </div>
+          <div class="daily-summary" id="daily-summary"></div>
+          <p class="qz-avail-note">Le moteur compose la série : les révisions les plus à risque d'oubli, une part réservée aux nouveaux mots (tes ajouts récents d'abord), deux sangsues au plus sur 20. Un mot raté ou nouveau revient quelques questions plus loin.</p>
+          <button class="btn-ghost" id="btn-open-atelier" type="button" style="display:none;">🩹 Atelier sangsues</button>
+        </div>
+
+        <div id="free-panel" style="display:none;">
         <!-- Révisions dues (répétition espacée) -->
         <div id="due-banner" style="display:none;margin:0 0 16px;padding:10px 14px;border-radius:10px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.25);color:#93c5fd;font-size:13px;font-weight:600;"></div>
 
@@ -2544,6 +2651,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           </div>
           <p class="qz-avail-note" id="avail-note"></p>
         </div>
+        </div><!-- /free-panel -->
 
         <button class="btn-primary" id="btn-start-quiz" style="width:100%;padding:13px;font-size:15px;" disabled>
           Start Quiz
@@ -2589,7 +2697,10 @@ tr.row-selected { background: rgba(59,130,246,.05); }
       <div class="qz-feedback" id="quiz-feedback"></div>
 
       <div class="qz-answer-row">
-        <input type="text" id="quiz-answer-input" class="qz-answer-input" placeholder="Your answer…" autocomplete="off" aria-label="Your answer">
+        <div class="qz-answer-field">
+          <span class="qz-answer-flag" id="quiz-answer-flag" aria-hidden="true"></span>
+          <input type="text" id="quiz-answer-input" class="qz-answer-input" placeholder="Your answer…" autocomplete="off" aria-label="Your answer">
+        </div>
         <button class="btn-primary" id="btn-check" style="padding:14px 20px;">Check</button>
         <button class="btn-secondary" id="btn-skip">Skip</button>
       </div>
@@ -2617,7 +2728,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           <div class="review-prog-bar-fill" id="review-prog-fill" style="width:0%"></div>
         </div>
         <div class="review-asked-row">
-          <div class="review-asked-label">You were asked to translate:</div>
+          <div class="review-asked-label">You were asked to translate: <span id="review-asked-flag"></span></div>
           <span class="review-flag-chip" id="review-flag-chip" style="display:none;">🚩 Flagged during the test</span>
         </div>
         <div class="review-word-box" id="review-asked">—</div>
@@ -2628,7 +2739,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           </div>
           <div class="review-arrow">→</div>
           <div>
-            <div class="review-col-label right">✅ Correct answer</div>
+            <div class="review-col-label right">✅ Correct answer <span id="review-correct-flag"></span></div>
             <div class="review-answer-box right" id="review-correct">—</div>
           </div>
         </div>
@@ -2678,6 +2789,19 @@ tr.row-selected { background: rgba(59,130,246,.05); }
       </div>
     </div>
 
+    <!-- Atelier sangsues : relire la fiche, écrire une phrase ou un moyen mnémotechnique,
+         puis 3 rappels espacés par mot. Les mots suspendus se réactivent ici. -->
+    <div id="quiz-atelier" class="qz-card" style="display:none;">
+      <div class="atl-head">
+        <span class="atl-title">🩹 Atelier sangsues</span>
+        <button class="btn-ghost" id="atl-close" type="button">← Retour</button>
+      </div>
+      <p class="atl-intro">Ces mots résistent : les reposer en boucle ne suffit pas. Relis la fiche, écris une phrase à toi ou un moyen mnémotechnique — il deviendra l'indice affiché pendant la question —, puis chaque mot revient trois fois. Réussi au dernier rappel, il repart dans la rotation normale.</p>
+      <div id="atl-card"></div>
+      <div class="atl-sub">⏸ Mots suspendus</div>
+      <div id="atl-suspended-list"></div>
+    </div>
+
     <!-- Session summary (hidden by default) -->
     <div id="quiz-summary" class="qz-summary" style="display:none;">
       <div class="qz-summary-card">
@@ -2699,6 +2823,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           </div>
         </div>
         <div class="qz-stopped-note" id="summary-stopped" style="display:none;"></div>
+        <div class="qz-summary-notes" id="summary-notes"></div>
       </div>
 
       <!-- Session stats footer (streak, time, total) -->
@@ -2741,6 +2866,17 @@ tr.row-selected { background: rgba(59,130,246,.05); }
        VIEW: PROGRESS
   ════════════════════════════════ -->
   <section class="qz-view" id="view-progress" role="tabpanel">
+
+    <!-- ── Pilotage de l'apprentissage (journal quiz_answers) ── -->
+    <div class="kpi-section" id="kpi-section">
+      <div class="kpi-head">
+        <span class="kpi-title">📈 Pilotage de l'apprentissage</span>
+        <span class="kpi-sub" id="kpi-sub"></span>
+      </div>
+      <div class="kpi-grid" id="kpi-grid"></div>
+      <div class="kpi-stages" id="kpi-stages"></div>
+      <div class="kpi-note" id="kpi-note"></div>
+    </div>
 
     <!-- ── Gamified stats ── -->
     <div class="qz-gamestats-section">
@@ -3392,10 +3528,9 @@ function tickQuizTimer() {
 
   clearQuizTimer();
   const item = quizQueue[quizIndex];
-  if (!item) return;                   // file vidée entre-temps
-  sessionAnswers.push({ word: item.word, correct: false, skipped: true, givenAnswer: '', direction: item.direction, question: item.question, answer: item.answer });
-  recordAnswer(item.word.id, false);
-  advanceQuiz();
+  if (!item || item.result) return;    // file vidée ou question déjà répondue
+  // Temps écoulé : la réponse s'affiche, comme pour « Skip » — on n'avance plus à l'aveugle
+  revealUnanswered(item, 'timeout');
 }
 
 /* Regarder ailleurs ne doit pas coûter la question : le temps passé masqué est
@@ -3452,6 +3587,12 @@ let reviewIndex = 0;
   renderProgress();
   updateAvailNote();
   updateImportBanner();
+  // Moteur v2 : réglages et journal des réponses, puis le régulateur du jour.
+  // Pas bloquant : la page s'affiche tout de suite et se met à jour ensuite.
+  answerLogPromise = Promise.all([loadSrsSettings(), loadAnswerLog()])
+    .then(runSrsRegulator)
+    .catch(e => console.warn('[SRS] chargement du journal', e))
+    .then(() => { updateAvailNote(); renderKpiPanel(); });
 })();
 
 /* ═══════════════════════════════════════════════════════════
@@ -3549,6 +3690,8 @@ async function saveWordPatch(id, patch) {
     // Colonnes de flag pas encore migrées : message lisible, pas une exception
     const msg = /flag(ged_at|_reason|_note)/i.test(error.message || '')
       ? 'Flag indisponible — la migration SQL n\'est pas encore passée'
+      : /suspended_at/i.test(error.message || '')
+      ? 'Suspension indisponible — quiz_srs_v2.sql n\'est pas encore passé'
       : 'Erreur : ' + (error.message || 'update failed');
     showToast(msg);
     return false;
@@ -3830,41 +3973,386 @@ async function loadProgress() {
 }
 
 /* ── SRS constants ── */
-const SRS_MAX_EASE      = 2.5;   // plafond SM-2 (l'ease ne croît plus au-delà)
-const SRS_MIN_EASE      = 1.3;
-const NEW_WORDS_PER_DAY = 15;    // limite d'introduction de nouveaux mots / jour
+const NEW_WORDS_PER_DAY = 15;    // plafond de nouveaux mots / jour en Entraînement libre
 const RECENT_WINDOW     = 10;    // fenêtre glissante pour la mesure de maîtrise
 
-/* Taux de réussite « fenêtré » : les 10 dernières réponses si dispo,
-   sinon le ratio lifetime (fallback avant migration `recent`). */
-function wordRate(p) {
+/* SRS-PURE-BEGIN ═══════════════════════════════════════════════
+   Moteur d'apprentissage v2 — fonctions pures : ni DOM, ni réseau, ni état
+   global. Testées hors navigateur (voir KNOWLEDGE_QUIZ.md §5). Toute la
+   logique de décision vit ici ; le reste du fichier se contente d'afficher,
+   d'écrire et de journaliser.
+
+   Parcours d'un mot (quiz_progress.stage) :
+     new   → jamais posé
+     learn → découvert, à revoir le lendemain (étape d'apprentissage)
+     recv  → réception, NL → FR, intervalles croissants
+     prod  → production, FR → NL (puis phrase à trou une fois acquis),
+             débloquée quand la réception tient 7 jours
+   Un mot est « acquis » en production à 21 jours ou plus. Une sangsue
+   cumule 4 oublis pour moins de 50 % de réussite. */
+const DAY_MS = 86400000;
+const GRADE = { AGAIN: 1, HARD: 2, GOOD: 3, EASY: 4 };
+const GRADE_LABEL = { 1: 'Raté', 2: 'Difficile', 3: 'Bien', 4: 'Facile' };
+const SRS2 = {
+  START_EASE: 2.5, MIN_EASE: 1.3, MAX_EASE: 2.5,
+  GOOD_EASE_UP: 0.15,      // « Bien » fait remonter la facilité tant qu'elle est sous 2,5
+  HARD_EASE_DOWN: 0.15,
+  AGAIN_EASE_DOWN: 0.2,
+  HARD_MULT: 1.2,          // multiplicateurs d'Anki
+  EASY_BONUS: 1.3,
+  GRADUATE_GOOD: 3,        // apprentissage réussi → réception à 3 jours
+  GRADUATE_EASY: 4,
+  PROD_UNLOCK: 7,          // réception qui tient 7 jours → production
+  ACQUIRED: 21,            // production à 21 jours ou plus → mot acquis
+  LEECH_LAPSES: 4,
+  LEECH_RATE: 0.5,
+  LATENCY_EASY: 2000,      // première frappe en moins de 2 s → Facile
+  LATENCY_HARD: 8000,      // plus de 8 s → Difficile
+  N_START: 8, N_MIN: 3, N_MAX: 20,
+  REGULATOR_MIN_DUE: 30,   // révisions dues dans le journal (7 j) avant d'ajuster quoi que ce soit
+};
+
+function srsStage(p) {
+  if (!p || !p.attempts) return 'new';
+  return p.stage || 'recv';   // lignes d'avant la v2 : réception
+}
+
+/* Taux de réussite « fenêtré » : les 10 dernières réponses si dispo, sinon le ratio lifetime */
+function srsRate(p) {
   if (!p || !p.attempts) return -1;
   const recent = Array.isArray(p.recent) ? p.recent : null;
-  if (recent && recent.length >= 3) {
-    return recent.reduce((s, v) => s + (v ? 1 : 0), 0) / recent.length;
-  }
+  if (recent && recent.length >= 3) return recent.reduce((s, v) => s + (v ? 1 : 0), 0) / recent.length;
   return p.correct / p.attempts;
 }
 
-/* Mot « dû » : last_tested + interval_days est dépassé. */
-function isDueWord(p, nowMs) {
-  if (!p || !p.attempts || !p.last_tested) return false;
-  const iv = Math.max(1, p.interval_days || 1);
-  return (new Date(p.last_tested).getTime() + iv * 86400000) <= nowMs;
+function srsLapses(p) {
+  if (!p) return 0;
+  return p.lapses ?? Math.max(0, (p.attempts || 0) - (p.correct || 0));
 }
 
-/* Compteur local de nouveaux mots introduits aujourd'hui (heuristique par device). */
+function srsIsLeech(p) {
+  return !!(p && p.attempts) && srsLapses(p) >= SRS2.LEECH_LAPSES && srsRate(p) < SRS2.LEECH_RATE;
+}
+
+function srsIsAcquired(p) {
+  return srsStage(p) === 'prod' && (p.interval_days || 0) >= SRS2.ACQUIRED;
+}
+
+function srsIsDue(p, now) {
+  if (!p || !p.attempts || !p.last_tested) return false;
+  return new Date(p.last_tested).getTime() + Math.max(1, p.interval_days || 1) * DAY_MS <= now;
+}
+
+/* Risque d'oubli : temps écoulé rapporté à l'intervalle (≥ 1 quand le mot est dû) */
+function srsRisk(p, now) {
+  if (!p || !p.last_tested) return 0;
+  return (now - new Date(p.last_tested).getTime()) / (Math.max(1, p.interval_days || 1) * DAY_MS);
+}
+
+/* Note automatique, sans clic de plus. latencyMs = temps avant la première
+   frappe, null s'il est inconnu (page masquée pendant la question). */
+function srsGrade({ correct, closeReason, articleIssue, latencyMs }) {
+  if (!correct) return GRADE.AGAIN;
+  if (closeReason === 'typo' || articleIssue) return GRADE.HARD;
+  if (latencyMs != null && latencyMs > SRS2.LATENCY_HARD) return GRADE.HARD;
+  if (latencyMs != null && latencyMs < SRS2.LATENCY_EASY && !closeReason) return GRADE.EASY;
+  return GRADE.GOOD;
+}
+
+/* État suivant d'un mot après une réponse notée (premier essai d'une séance).
+   p = ligne quiz_progress ou null. Ne mute rien. */
+function srsNext(p, grade, now) {
+  const stage   = srsStage(p);
+  const ok      = grade >= GRADE.HARD;
+  const before  = stage === 'new' ? null : Math.max(1, p.interval_days || 1);
+  const elapsed = p && p.last_tested ? Math.max(0, (now - new Date(p.last_tested).getTime()) / DAY_MS) : null;
+  let ease   = p && p.ease_factor ? p.ease_factor : SRS2.START_EASE;
+  let lapses = srsLapses(p);
+  let next   = stage;
+  let iv;
+
+  if (stage === 'new') {
+    // Découverte : rater un mot jamais vu n'est pas un oubli — ni lapse, ni facilité perdue
+    if (grade === GRADE.EASY) { next = 'recv'; iv = SRS2.GRADUATE_GOOD; }
+    else                      { next = 'learn'; iv = 1; }
+  } else if (stage === 'learn') {
+    if (grade === GRADE.AGAIN)     { lapses += 1; iv = 1; }
+    else if (grade === GRADE.HARD) { iv = 1; }
+    else { next = 'recv'; iv = grade === GRADE.EASY ? SRS2.GRADUATE_EASY : SRS2.GRADUATE_GOOD; }
+  } else if (grade === GRADE.AGAIN) {
+    lapses += 1;
+    ease = Math.max(SRS2.MIN_EASE, ease - SRS2.AGAIN_EASE_DOWN);
+    iv = 1;
+  } else {
+    // Révision en avance : on multiplie le temps réellement écoulé, et jamais
+    // moins que l'intervalle actuel — fini le 8 → 20 → 50 jours en trois jours.
+    const early = elapsed !== null && elapsed < before;
+    const base  = early ? elapsed : before;
+    let mult;
+    if (grade === GRADE.HARD) {
+      ease = Math.max(SRS2.MIN_EASE, ease - SRS2.HARD_EASE_DOWN);
+      mult = SRS2.HARD_MULT;
+    } else {
+      ease = Math.min(SRS2.MAX_EASE, ease + SRS2.GOOD_EASE_UP);
+      mult = grade === GRADE.EASY ? ease * SRS2.EASY_BONUS : ease;
+    }
+    iv = Math.round(base * mult);
+    iv = early ? Math.max(before, iv) : Math.max(before + 1, iv);   // une révision réussie à l'heure fait toujours avancer
+    // La réception tient : la production prend le relais, à un tiers de l'intervalle
+    if (stage === 'recv' && iv >= SRS2.PROD_UNLOCK) { next = 'prod'; iv = Math.max(2, Math.round(iv / 3)); }
+  }
+
+  const nowIso = new Date(now).toISOString();
+  return {
+    state: {
+      stage: next,
+      interval_days: iv,
+      ease_factor: Math.round(ease * 100) / 100,
+      lapses,
+      attempts: ((p && p.attempts) || 0) + 1,
+      correct:  ((p && p.correct)  || 0) + (ok ? 1 : 0),
+      recent:   ((p && Array.isArray(p.recent)) ? p.recent : []).concat(ok ? 1 : 0).slice(-10),
+      last_tested: nowIso,
+      first_tested: stage === 'new' ? nowIso : ((p && p.first_tested) || null),
+    },
+    log: {
+      stage,
+      was_due: stage === 'new' ? null : srsIsDue(p, now),
+      elapsed_days: elapsed === null ? null : Math.round(elapsed * 100) / 100,
+      interval_before: before,
+      interval_after: iv,
+    },
+  };
+}
+
+/* Sangsue réussie à l'atelier : oublis remis à zéro, facilité relevée, retour demain */
+function srsRescue(p, now) {
+  return {
+    lapses: 0,
+    ease_factor: Math.max(2.3, (p && p.ease_factor) || SRS2.START_EASE),
+    interval_days: 1,
+    last_tested: new Date(now).toISOString(),
+  };
+}
+
+/* Direction d'une question selon l'étape : réception avant production, puis la
+   phrase à trou pour les mots acquis qui ont un exemple. */
+function srsDirection(word, p, rnd = Math.random) {
+  if (srsStage(p) !== 'prod') return 'forward';
+  if (srsIsAcquired(p) && word.example_sentence && rnd() < 0.5) return 'cloze';
+  return 'reverse';
+}
+
+/* Ordre des nouveaux mots : tes ajouts d'abord — deux sur trois parmi les plus
+   récents (le contexte de lecture est frais), un sur trois dans le stock le plus
+   ancien (pour que rien n'attende indéfiniment) — puis la liste système. */
+function srsNewWordOrder(fresh) {
+  const t = w => new Date(w.created_at || 0).getTime();
+  const own    = fresh.filter(w => !w.is_system);
+  const recent = [...own].sort((a, b) => t(b) - t(a));
+  const old    = [...own].sort((a, b) => t(a) - t(b));
+  const seen = new Set(), out = [];
+  let r = 0, o = 0, k = 0;
+  while (out.length < own.length) {
+    const fromOld = k % 3 === 2;
+    let w = null;
+    if (fromOld) { while (o < old.length && seen.has(old[o].id)) o++; w = old[o++] || null; }
+    if (!w)      { while (r < recent.length && seen.has(recent[r].id)) r++; w = recent[r++] || null; }
+    if (!w)      { while (o < old.length && seen.has(old[o].id)) o++; w = old[o++] || null; }
+    if (!w) break;
+    seen.add(w.id); out.push(w); k++;
+  }
+  const sys = fresh.filter(w => w.is_system).sort((a, b) => t(a) - t(b));
+  return out.concat(sys);
+}
+
+/* Composition de la séance du jour. Les nouveaux mots ont une part réservée
+   (un toutes les 3 à 4 questions, dans la limite du budget du jour) au lieu des
+   places restantes ; les révisions passent par risque d'oubli ; les sangsues
+   sont plafonnées ; aucun mot non dû ne vient remplir la série. */
+function srsComposeDaily({ words, progress, now, size, budgetLeft, leechPct = 0.10, bias = null, rnd = Math.random }) {
+  const due = [], leech = [], fresh = [];
+  for (const w of words) {
+    if (w.suspended_at) continue;
+    const p = progress[w.id];
+    if (!p || !p.attempts) { fresh.push(w); continue; }
+    if (!srsIsDue(p, now)) continue;
+    (srsIsLeech(p) ? leech : due).push(w);
+  }
+  const byRisk = (a, b) => srsRisk(progress[b.id], now) - srsRisk(progress[a.id], now);
+  due.sort(byRisk);
+  leech.sort(byRisk);
+  const newOrder = srsNewWordOrder(fresh);
+  const budget   = Math.max(0, budgetLeft);
+
+  let nNew = Math.min(budget, newOrder.length, Math.ceil(size / 4));
+  if (bias === 'easier') nNew = Math.floor(nNew / 2);
+  if (bias === 'harder') nNew = Math.min(budget, newOrder.length, Math.ceil(size / 3));
+  let nLeech = Math.min(leech.length, Math.max(1, Math.round(size * leechPct)));
+  if (bias === 'easier') nLeech = Math.min(nLeech, 1);
+  let nRev = Math.min(due.length, size - nNew - nLeech);
+  // Pas assez de révisions dues : le budget de nouveaux complète, rien d'autre
+  if (nNew + nLeech + nRev < size) nNew = Math.min(budget, newOrder.length, size - nLeech - nRev);
+
+  const reviews = due.slice(0, nRev).concat(leech.slice(0, nLeech));
+  for (let i = reviews.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [reviews[i], reviews[j]] = [reviews[j], reviews[i]];
+  }
+  const news  = newOrder.slice(0, nNew);
+  const total = reviews.length + news.length;
+  const slots = new Set(news.map((_, i) => Math.floor((i + 0.5) * total / news.length)));
+  const items = [];
+  let ri = 0, ni = 0;
+  for (let i = 0; i < total; i++) {
+    const takeNew = (slots.has(i) && ni < news.length) || ri >= reviews.length;
+    if (takeNew) items.push({ word: news[ni++], isNew: true });
+    else         items.push({ word: reviews[ri++], isNew: false });
+  }
+  return {
+    items,
+    stats: { nNew: news.length, nRev, nLeech, due: due.length, leeches: leech.length, fresh: fresh.length },
+  };
+}
+
+function srsMedian(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+/* Indicateurs de pilotage, calculés sur le journal des réponses (log), l'état
+   des mots (progress) et le vocabulaire (words). Une valeur null = pas mesurable. */
+function srsKpis({ log, progress, words, now }) {
+  const d7 = now - 7 * DAY_MS, d14 = now - 14 * DAY_MS;
+  const at = r => new Date(r.answered_at).getTime();
+  const share = (rows, f) => rows.length ? rows.filter(f).length / rows.length : null;
+  const firsts = log.filter(r => !r.is_relearn && r.mode !== 'atelier');
+  const in7    = firsts.filter(r => at(r) >= d7);
+  const prev7  = firsts.filter(r => at(r) >= d14 && at(r) < d7);
+  const dueOf  = rows => rows.filter(r => r.was_due && !r.is_new);
+
+  const live = words.filter(w => !w.suspended_at);
+  const dueCount = live.filter(w => srsIsDue(progress[w.id], now)).length;
+  const perDay = in7.length / 7;
+  const leechWords = live.filter(w => srsIsLeech(progress[w.id]));
+
+  const introducedIds = new Set(in7.filter(r => r.is_new).map(r => r.word_id));
+  Object.values(progress).forEach(p => {
+    if (p.first_tested && new Date(p.first_tested).getTime() >= d7) introducedIds.add(p.word_id);
+  });
+
+  const waiting = live.filter(w => !w.is_system && !(progress[w.id] && progress[w.id].attempts));
+  const waitAges = waiting.map(w => (now - new Date(w.created_at || now).getTime()) / DAY_MS);
+
+  const acquired7 = new Set(in7.filter(r => r.stage === 'prod' && (r.interval_before || 0) < SRS2.ACQUIRED
+    && (r.interval_after || 0) >= SRS2.ACQUIRED).map(r => r.word_id));
+
+  const recvRate = share(in7.filter(r => r.direction === 'forward'), r => r.correct);
+  const prodRate = share(in7.filter(r => r.direction !== 'forward'), r => r.correct);
+
+  const stages = { new: 0, learn: 0, recv: 0, prod: 0, acquired: 0, suspended: 0 };
+  words.forEach(w => {
+    if (w.suspended_at) { stages.suspended++; return; }
+    const p = progress[w.id];
+    const st = srsStage(p);
+    if (st === 'prod' && srsIsAcquired(p)) stages.acquired++;
+    else stages[st]++;
+  });
+
+  return {
+    logSize: log.length,
+    answers7: in7.length,
+    retention: share(dueOf(in7), r => r.correct),
+    retentionN: dueOf(in7).length,
+    retentionPrev: share(dueOf(prev7), r => r.correct),
+    perDay,
+    dueCount,
+    backlogDays: perDay > 0 ? dueCount / perDay : null,
+    leechCount: leechWords.length,
+    leechShare: share(in7, r => r.is_leech),
+    newPerDay: introducedIds.size / 7,
+    newRecall: share(log.filter(r => r.is_new && r.is_relearn && at(r) >= d7), r => r.correct),
+    waitingCount: waiting.length,
+    waitMedianDays: srsMedian(waitAges),
+    acquiredNow: stages.acquired,
+    acquired7: acquired7.size,
+    recvRate, prodRate,
+    gap: recvRate != null && prodRate != null ? recvRate - prodRate : null,
+    latencyMedian: srsMedian(in7.filter(r => r.correct && r.first_key_ms != null).map(r => r.first_key_ms)),
+    stages,
+  };
+}
+
+/* Régulateur : une fois par jour, ajuste le nombre de nouveaux mots (n) sur les
+   7 derniers jours. Jamais sous 3 — un peu de nouveauté chaque jour entretient
+   la motivation —, jamais au-dessus de 20. */
+function srsRegulate(n, k) {
+  const pct = v => Math.round(v * 100) + ' %';
+  if (!k || k.retentionN < SRS2.REGULATOR_MIN_DUE) {
+    return { n, reason: `budget inchangé : il faut ${SRS2.REGULATOR_MIN_DUE} révisions dues dans le journal des 7 derniers jours (${k ? k.retentionN : 0} pour l'instant)` };
+  }
+  let next = n;
+  const why = [];
+  const backlog = k.backlogDays;
+  if (k.retention < 0.80 || (backlog != null && backlog > 2)) {
+    next -= 3;
+    why.push(k.retention < 0.80 ? `rétention ${pct(k.retention)} sous 80 %` : `retard de ${backlog.toFixed(1)} jours`);
+  } else if (k.retention >= 0.90 && (backlog == null || backlog < 1)) {
+    next += 2;
+    why.push(`rétention ${pct(k.retention)} et retard sous un jour`);
+  } else {
+    why.push(`rétention ${pct(k.retention)}, dans la cible`);
+  }
+  if (k.newRecall != null && k.newRecall < 0.6) {
+    next -= 1;
+    why.push(`nouveaux mots retrouvés à ${pct(k.newRecall)} seulement`);
+  }
+  next = Math.min(SRS2.N_MAX, Math.max(SRS2.N_MIN, next));
+  return { n: next, reason: why.join(' · ') };
+}
+/* SRS-PURE-END ══════════════════════════════════════════════════ */
+
+/* Anciens noms, gardés pour le reste du fichier */
+function wordRate(p) { return srsRate(p); }
+function isDueWord(p, nowMs) { return srsIsDue(p, nowMs); }
+
+function localDayKey(ms = Date.now()) {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function localMidnight(ms = Date.now()) {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/* Compteur local de nouveaux mots introduits aujourd'hui — repli quand la
+   colonne first_tested n'existe pas encore (quiz_srs_v2.sql pas passé). */
 function _newIntroState() {
   try {
     const s = JSON.parse(localStorage.getItem('lazypo_new_intro') || '{}');
-    return s.date === _today() ? s : { date: _today(), count: 0 };
-  } catch { return { date: _today(), count: 0 }; }
+    return s.date === localDayKey() ? s : { date: localDayKey(), count: 0 };
+  } catch { return { date: localDayKey(), count: 0 }; }
 }
-function newWordsIntroducedToday() { return _newIntroState().count; }
+/* Nouveaux mots introduits aujourd'hui, tous appareils confondus quand la base
+   le permet (first_tested, journal), sinon le compteur de cet appareil. */
+function newWordsIntroducedToday() {
+  const midnight = localMidnight();
+  const ids = new Set();
+  Object.values(progress).forEach(p => {
+    if (p.first_tested && new Date(p.first_tested).getTime() >= midnight) ids.add(p.word_id);
+  });
+  answerLog.forEach(r => {
+    if (r.is_new && !r.is_relearn && new Date(r.answered_at).getTime() >= midnight) ids.add(r.word_id);
+  });
+  return Math.max(ids.size, _newIntroState().count);
+}
 function trackNewWordIntro() {
   const s = _newIntroState();
   s.count += 1;
-  localStorage.setItem('lazypo_new_intro', JSON.stringify(s));
+  try { localStorage.setItem('lazypo_new_intro', JSON.stringify(s)); } catch (_) {}
 }
 
 /* ── Normalisation des réponses (P7) ── */
@@ -3887,63 +4375,156 @@ function normalizeAnswer(s) {
 }
 
 let recentColMissing = false; // colonne `recent` absente (migration pas encore appliquée)
+let progressV2Missing = false; // colonnes stage / lapses / first_tested absentes (quiz_srs_v2.sql pas passé)
+const pendingProgressWrites = new Set();   // écritures quiz_progress en vol — attendues avant tout rechargement
 
-async function recordAnswer(wordId, isCorrect) {
-  if (!wordId) return; // mots de Challenge Back (snapshot cross-user, id null)
-  const existing = progress[wordId];
-  let ef  = existing ? existing.ease_factor    : 2.5;
-  let iv  = existing ? existing.interval_days  : 1;
-  let c   = existing ? existing.correct        : 0;
-  let att = existing ? existing.attempts       : 0;
+/* ── Séance en cours ── */
+let sessionKind = 'free';      // 'daily' | 'free' | 'challenge' | 'atelier'
+let sessionKey  = null;        // identifiant de la séance, repris dans le journal
 
-  if (!existing) trackNewWordIntro(); // première rencontre = nouveau mot introduit aujourd'hui
+/* ── Journal des réponses (quiz_answers) ──
+   Une ligne par réponse, re-questions comprises. Gardé aussi en mémoire : les
+   KPI et le régulateur le lisent, y compris hors ligne ou si la table manque. */
+let answerLog         = [];    // 28 derniers jours + réponses de la session
+let answersLogMissing = false; // table absente : on n'insiste pas
+let answerLogLoaded   = false;
+let answerLogPromise  = null;  // chargement en cours (réglages + journal + régulateur)
 
-  att += 1;
-  if (isCorrect) {
-    c  += 1;
-    ef  = Math.min(SRS_MAX_EASE, ef + 0.1);   // plafond (avant : croissance illimitée)
-    iv  = Math.round(iv * ef);
-  } else {
-    ef  = Math.max(SRS_MIN_EASE, ef - 0.2);
-    iv  = 1;
+async function loadAnswerLog() {
+  if (!currentUser) return;
+  const since = new Date(Date.now() - 28 * DAY_MS).toISOString();
+  const PAGE = 1000;
+  let all = [], from = 0;
+  while (true) {
+    const { data, error } = await window.sb.from('quiz_answers')
+      .select('word_id, mode, answered_at, direction, stage, grade, correct, close_match, first_key_ms, is_new, is_relearn, is_leech, was_due, interval_before, interval_after')
+      .eq('user_id', currentUser.id)
+      .gte('answered_at', since)
+      .order('answered_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) { answersLogMissing = true; break; }
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;
+    from += PAGE;
   }
+  // Les réponses de la session en cours (déjà en mémoire) restent
+  const loaded = new Set(all.map(r => r.answered_at + r.word_id));
+  answerLog = all.concat(answerLog.filter(r => !loaded.has(r.answered_at + r.word_id)));
+  answerLogLoaded = true;
+}
 
-  // Fenêtre glissante des dernières réponses (1 = correct, 0 = raté)
-  const recent = ((existing && Array.isArray(existing.recent)) ? existing.recent : [])
-    .concat(isCorrect ? 1 : 0)
-    .slice(-RECENT_WINDOW);
-
-  const payload = {
-    user_id:       currentUser.id,
-    word_id:       wordId,
-    correct:       c,
-    attempts:      att,
-    last_tested:   new Date().toISOString(),
-    ease_factor:   ef,
-    interval_days: iv
+function logAnswer(row) {
+  const full = {
+    user_id: currentUser ? currentUser.id : null,
+    session_key: sessionKey,
+    mode: sessionKind,
+    answered_at: new Date().toISOString(),
+    close_match: false, is_new: false, is_relearn: false, is_leech: false,
+    ...row,
   };
+  answerLog.push(full);
+  if (answersLogMissing || !currentUser || !window.sb) return;
+  window.sb.from('quiz_answers').insert(full).then(({ error }) => {
+    if (error) answersLogMissing = true;   // table absente ou refusée : le journal reste local
+  }, () => {});
+}
 
-  let error = null;
-  if (!recentColMissing) {
-    ({ error } = await window.sb
-      .from('quiz_progress')
-      .upsert({ ...payload, recent }, { onConflict: 'user_id,word_id' }));
-    // Colonne `recent` pas encore migrée → retomber sur le payload sans elle
-    if (error && /recent/i.test(error.message || '')) {
-      recentColMissing = true;
-      ({ error } = await window.sb
-        .from('quiz_progress')
-        .upsert(payload, { onConflict: 'user_id,word_id' }));
-    }
-  } else {
-    ({ error } = await window.sb
-      .from('quiz_progress')
-      .upsert(payload, { onConflict: 'user_id,word_id' }));
-  }
+/* Enregistre le premier essai d'un mot dans une séance : nouvel état (srsNext)
+   dans quiz_progress, plus une ligne de journal. Les re-questions ne passent
+   jamais par ici — seule la note du premier essai compte pour l'espacement. */
+async function recordAnswer(word, grade, ctx = {}) {
+  const wordId = word && word.id;
+  if (!wordId || !currentUser) return null;   // mots de Challenge Back sans id
+  const existing = progress[wordId];
+  const now = Date.now();
+  const wasLeech = srsIsLeech(existing);
+  if (!existing || !existing.attempts) trackNewWordIntro();
+  const { state, log } = srsNext(existing, grade, now);
 
-  if (!error) {
-    progress[wordId] = recentColMissing ? payload : { ...payload, recent };
+  logAnswer({
+    word_id: wordId, direction: ctx.direction, stage: log.stage, grade,
+    correct: grade >= GRADE.HARD, close_match: !!ctx.close,
+    first_key_ms: ctx.latency ?? null, total_ms: ctx.totalMs ?? null,
+    is_new: log.stage === 'new', is_leech: wasLeech,
+    was_due: log.was_due, elapsed_days: log.elapsed_days,
+    interval_before: log.interval_before, interval_after: log.interval_after,
+  });
+
+  const base = {
+    user_id: currentUser.id, word_id: wordId,
+    correct: state.correct, attempts: state.attempts, last_tested: state.last_tested,
+    ease_factor: state.ease_factor, interval_days: state.interval_days,
+  };
+  const v2 = { stage: state.stage, lapses: state.lapses };
+  if (state.first_tested && (!existing || !existing.first_tested)) v2.first_tested = state.first_tested;
+
+  // L'état de la séance suit tout de suite, même si l'écriture échoue : le mot
+  // ne doit pas ressortir comme « nouveau » au tour suivant.
+  progress[wordId] = { ...(existing || {}), ...base, recent: state.recent, ...v2 };
+
+  // Écriture, en retirant les colonnes que la base n'a pas encore
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const payload = { ...base,
+      ...(recentColMissing  ? {} : { recent: state.recent }),
+      ...(progressV2Missing ? {} : v2) };
+    const { error } = await window.sb.from('quiz_progress').upsert(payload, { onConflict: 'user_id,word_id' });
+    if (!error) break;
+    const msg = error.message || '';
+    if (!recentColMissing && /recent/i.test(msg))                         { recentColMissing = true; continue; }
+    if (!progressV2Missing && /stage|lapses|first_tested/i.test(msg))     { progressV2Missing = true; continue; }
+    break;
   }
+  return { state, log };
+}
+
+/* ── Réglages du moteur (quiz_settings) ──
+   new_per_day = budget quotidien de nouveaux mots, ajusté une fois par jour
+   par le régulateur. Repli sur le localStorage si la table n'existe pas. */
+let srsSettings        = { new_per_day: SRS2.N_START, adjusted_on: null, last_reason: null };
+let srsSettingsMissing = false;
+const SRS_SETTINGS_KEY = 'lazypo_srs_settings';
+
+async function loadSrsSettings() {
+  if (!currentUser) return;
+  const { data, error } = await window.sb.from('quiz_settings')
+    .select('new_per_day, adjusted_on, last_reason').eq('user_id', currentUser.id).maybeSingle();
+  if (error) {
+    srsSettingsMissing = true;
+    try { srsSettings = { ...srsSettings, ...JSON.parse(localStorage.getItem(SRS_SETTINGS_KEY) || '{}') }; } catch (_) {}
+    return;
+  }
+  if (data) srsSettings = { ...srsSettings, ...data };
+}
+
+async function saveSrsSettings() {
+  try { localStorage.setItem(SRS_SETTINGS_KEY, JSON.stringify(srsSettings)); } catch (_) {}
+  if (srsSettingsMissing || !currentUser) return;
+  const { error } = await window.sb.from('quiz_settings').upsert({
+    user_id: currentUser.id,
+    new_per_day: srsSettings.new_per_day,
+    adjusted_on: srsSettings.adjusted_on,
+    last_reason: srsSettings.last_reason,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+  if (error) srsSettingsMissing = true;
+}
+
+function currentKpis() {
+  return srsKpis({ log: answerLog, progress, words: vocab, now: Date.now() });
+}
+
+/* Une fois par jour (heure locale) : le régulateur relit les 7 derniers jours */
+async function runSrsRegulator() {
+  const today = localDayKey();
+  if (srsSettings.adjusted_on === today) return;
+  const before = srsSettings.new_per_day;
+  const r = srsRegulate(before, currentKpis());
+  srsSettings = {
+    new_per_day: r.n,
+    adjusted_on: today,
+    last_reason: (r.n === before ? `${r.n} nouveaux mots par jour — ` : `${before} → ${r.n} nouveaux mots par jour — `) + r.reason,
+  };
+  await saveSrsSettings();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -4440,9 +5021,11 @@ function renderVocabRow(word) {
   const info    = word.extra_info
     ? `<span title="${escHtml(word.extra_info)}">${escHtml(word.extra_info.length > 28 ? word.extra_info.slice(0,28)+'…' : word.extra_info)}</span>`
     : '<span style="opacity:.3">—</span>';
-  const flag = word.flagged_at
+  const flag = (word.flagged_at
     ? ` <span class="flag-badge" title="${escHtml(flagTitle(word))}">🚩</span>`
-    : '';
+    : '') + (word.suspended_at
+    ? ` <span class="susp-badge" title="Suspendu — ne sort plus dans les séries. Réactivable depuis l'atelier sangsues.">⏸</span>`
+    : '');
   return `<tr data-id="${word.id}">
     <td class="num-col">${vocabNum[word.id] || '—'}</td>
     <td class="source-word">${escHtml(word.source_word)}${flag}</td>
@@ -4587,6 +5170,9 @@ function attachEditListeners() {
 let selectedIds = new Set();
 
 let quizFilter  = 'all';
+let setupMode   = 'daily';  // 'daily' (séance du jour) | 'free' (entraînement libre)
+let dailySize   = 20;
+try { if (localStorage.getItem('lazypo_quiz_setup_mode') === 'free') setupMode = 'free'; } catch (_) {}
 let flaggedFirst = false;  // mots flaggés en tête de file — uniquement si l'utilisateur le choisit
 let rangeFrom   = null;   // n° de début, null = pas de borne
 let rangeTo     = null;   // n° de fin,   null = pas de borne
@@ -4692,6 +5278,63 @@ document.querySelectorAll('#count-btns .qz-count-btn').forEach(btn => {
   });
 });
 
+/* ── Type de séance : séance du jour (composée par le moteur) ou entraînement libre ── */
+function applySetupMode() {
+  document.querySelectorAll('.qz-setup-mode').forEach(b => {
+    const on = b.dataset.setupMode === setupMode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.getElementById('daily-panel').style.display = setupMode === 'daily' ? 'block' : 'none';
+  document.getElementById('free-panel').style.display  = setupMode === 'free'  ? 'block' : 'none';
+}
+document.querySelectorAll('.qz-setup-mode').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setupMode = btn.dataset.setupMode;
+    try { localStorage.setItem('lazypo_quiz_setup_mode', setupMode); } catch (_) {}
+    applySetupMode();
+    updateAvailNote();
+  });
+});
+document.querySelectorAll('#daily-size-btns .qz-count-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#daily-size-btns .qz-count-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    dailySize = parseInt(btn.dataset.size, 10);
+    updateAvailNote();
+  });
+});
+applySetupMode();
+
+/* Ce que la séance du jour va servir, et pourquoi le budget est ce qu'il est */
+function renderDailyPanel() {
+  const el = document.getElementById('daily-summary');
+  if (!el) return;
+  const plan  = dailyPlan(dailySize);
+  const st    = plan.stats;
+  const n     = srsSettings.new_per_day;
+  const intro = Math.min(newWordsIntroducedToday(), n);
+  const pl    = (k, one, many) => `<b>${k}</b> ${k > 1 ? many : one}`;
+  const line = plan.items.length
+    ? `Cette séance : <b>${plan.items.length}</b> questions — ${pl(st.nNew, 'nouveau mot', 'nouveaux mots')}, ${pl(st.nRev, 'révision', 'révisions')}, ${pl(st.nLeech, 'sangsue', 'sangsues')}`
+    : `Rien à poser pour le moment : aucune révision due, et le budget de nouveaux mots du jour est atteint.`;
+  const meta = `${st.due + st.leeches} révision${st.due + st.leeches > 1 ? 's' : ''} due${st.due + st.leeches > 1 ? 's' : ''}`
+    + ` · budget du jour : ${n} nouveaux mots, ${intro} déjà découvert${intro > 1 ? 's' : ''}`
+    + ` · ${st.fresh} mot${st.fresh > 1 ? 's' : ''} jamais posé${st.fresh > 1 ? 's' : ''}`;
+  const reason = srsSettings.last_reason
+    || `Budget de départ : ${n} nouveaux mots par jour. Il s'ajustera tout seul quand le journal des réponses en saura assez.`;
+  el.innerHTML = `<div class="dp-line">${line}</div><div class="dp-meta">${meta}</div><div class="dp-reason">${escHtml(reason)}</div>`;
+
+  const leeches   = vocab.filter(w => !w.suspended_at && srsIsLeech(progress[w.id])).length;
+  const suspended = vocab.filter(w => w.suspended_at).length;
+  const atl = document.getElementById('btn-open-atelier');
+  atl.style.display = leeches || suspended ? 'inline-flex' : 'none';
+  atl.textContent = leeches ? `🩹 Atelier sangsues (${leeches})` : `⏸ Mots suspendus (${suspended})`;
+
+  const startBtn = document.getElementById('btn-start-quiz');
+  if (startBtn) startBtn.disabled = plan.items.length === 0;
+}
+
 function updateAvailNote() {
   const toEl = document.getElementById('range-to');
   if (toEl) toEl.placeholder = vocab.length ? String(vocab.length) : '—';
@@ -4779,10 +5422,13 @@ function updateAvailNote() {
     banner.style.display = msgs.length ? 'block' : 'none';
     banner.textContent   = msgs.join(' ');
   }
+
+  if (setupMode === 'daily') renderDailyPanel();
 }
 
 function filterVocabForQuiz(filter) {
-  let list = [...vocab];
+  // Un mot suspendu (atelier sangsues) ne sort dans aucune série
+  let list = vocab.filter(w => !w.suspended_at);
 
   // Language filter
   if (filter === 'EN→FR')   list = list.filter(w => w.language_pair === 'EN→FR');
@@ -4838,9 +5484,11 @@ function buildQuizQueue(filter, count, mode) {
 
   // Flag le plus récent d'abord — c'est celui qu'on a en tête
   flagged.sort((a, b) => new Date(b.flagged_at) - new Date(a.flagged_at));
-  // Dus les plus fragiles d'abord (fenêtre glissante), pour survivre au slice
-  due.sort((a, b) => wordRate(progress[a.id]) - wordRate(progress[b.id]));
-  shuffle(fresh);
+  // Dus par risque d'oubli ; avec « Needs practice », les plus fragiles d'abord
+  if (filter === 'practice') due.sort((a, b) => wordRate(progress[a.id]) - wordRate(progress[b.id]));
+  else due.sort((a, b) => srsRisk(progress[b.id], now) - srsRisk(progress[a.id], now));
+  // Nouveaux : tes ajouts récents d'abord (srsNewWordOrder), plus de tirage au hasard
+  fresh.splice(0, fresh.length, ...srsNewWordOrder(fresh));
   shuffle(notDue);
 
   const newAllowance = Math.max(0, NEW_WORDS_PER_DAY - newWordsIntroducedToday());
@@ -4857,18 +5505,16 @@ function buildQuizQueue(filter, count, mode) {
   shuffle(selected);
 
   return selected.map(word => {
+    const p = progress[word.id];
+    const isNewWord = !p || !p.attempts;
     // Cloze (~1/3) quand activé et qu'une phrase d'exemple contient le mot
     if (clozeMode === 'mix' && Math.random() < 0.34) {
       const cloze = buildClozeItem(word);
-      if (cloze) return cloze;
+      if (cloze) return { ...cloze, isNewWord };
     }
-    // In auto mode, randomly pick direction per word
-    const dir = (mode === 'auto')
-      ? (Math.random() < 0.5 ? 'forward' : 'reverse')
-      : mode;
-    const question = dir === 'forward' ? word.source_word        : word.target_translation;
-    const answer   = dir === 'forward' ? word.target_translation : word.source_word;
-    return { word, question, answer, direction: dir };
+    // Auto : la direction suit l'étape du mot (réception, puis production)
+    const dir = mode === 'auto' ? srsDirection(word, p) : mode;
+    return makeQuizItem(word, dir, { isNewWord });
   });
 }
 
@@ -4897,64 +5543,171 @@ function shuffle(arr) {
   }
 }
 
-/* Start quiz */
-document.getElementById('btn-start-quiz').addEventListener('click', () => {
+/* ── Drapeaux : langue de la question, langue de la réponse attendue ──
+   SVG inline plutôt qu'emoji : sous Windows, 🇳🇱 s'affiche « NL » en lettres. */
+const LANGS = {
+  NL: { name: 'Dutch',   svg: '<svg viewBox="0 0 9 6" preserveAspectRatio="none"><rect width="9" height="6" fill="#21468B"/><rect width="9" height="4" fill="#fff"/><rect width="9" height="2" fill="#AE1C28"/></svg>' },
+  FR: { name: 'French',  svg: '<svg viewBox="0 0 9 6" preserveAspectRatio="none"><rect width="9" height="6" fill="#ED2939"/><rect width="6" height="6" fill="#fff"/><rect width="3" height="6" fill="#002395"/></svg>' },
+  EN: { name: 'English', svg: '<svg viewBox="0 0 60 30" preserveAspectRatio="xMidYMid slice"><rect width="60" height="30" fill="#012169"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#fff" stroke-width="6"/><path d="M0,0 L60,30 M60,0 L0,30" stroke="#C8102E" stroke-width="2"/><path d="M30,0 V30 M0,15 H60" stroke="#fff" stroke-width="10"/><path d="M30,0 V30 M0,15 H60" stroke="#C8102E" stroke-width="6"/></svg>' },
+};
+/* « NL→FR », « EN→FR » ou « nl-fr » (liste système d'origine) → ['NL', 'FR'] */
+function langPair(word) {
+  const parts = String((word && word.language_pair) || 'NL→FR').toUpperCase().split(/→|-/);
+  return [LANGS[parts[0]] ? parts[0] : 'NL', LANGS[parts[1]] ? parts[1] : 'FR'];
+}
+function flagHtml(code) {
+  const l = LANGS[code];
+  return l ? `<span class="qz-flag" role="img" aria-label="${l.name}" title="${l.name}">${l.svg}</span>` : '';
+}
+/* Langue de la question et de la réponse selon la direction. La phrase à trou
+   est en langue source, et sa réponse aussi. */
+function itemLangs(item) {
+  const [src, tgt] = langPair(item.word);
+  if (item.direction === 'forward') return [src, tgt];
+  if (item.direction === 'reverse') return [tgt, src];
+  return [src, src];
+}
+
+/* Fiche complète d'un mot : traduction, phrase, astuce, infos */
+function wordCardHtml(w) {
+  const [src, tgt] = langPair(w);
+  return `<div class="qz-word-card">
+    <div class="qz-wc-main">${flagHtml(src)} <b>${escHtml(w.source_word)}</b> <span class="qz-wc-arrow">→</span> ${flagHtml(tgt)} ${escHtml(w.target_translation)}</div>
+    ${w.example_sentence ? `<div class="qz-wc-ex">${escHtml(w.example_sentence)}</div>` : ''}
+    ${w.tips ? `<div class="qz-wc-tip">💡 ${escHtml(w.tips)}</div>` : ''}
+    ${w.extra_info ? `<div class="qz-extra-info">ℹ️ ${escHtml(w.extra_info)}</div>` : ''}
+  </div>`;
+}
+
+/* Une question : le mot, sa direction et la réponse attendue */
+function makeQuizItem(word, dir, extra = {}) {
+  if (dir === 'cloze') {
+    const c = buildClozeItem(word);
+    if (c) return { ...c, ...extra };
+    dir = 'reverse';   // pas de phrase exploitable : production classique
+  }
+  return {
+    word, direction: dir,
+    question: dir === 'forward' ? word.source_word : word.target_translation,
+    answer:   dir === 'forward' ? word.target_translation : word.source_word,
+    ...extra,
+  };
+}
+
+/* ── Démarrer une séance ── */
+const RELEARN_MAX = 3;         // re-questions par mot et par séance
+let relearnCount  = new Map(); // mot → re-questions déjà ajoutées
+
+function newSessionKey() {
+  try { return crypto.randomUUID(); } catch (_) { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+}
+
+function beginSession(kind, queue) {
+  if (!queue.length) {
+    showToast('Rien à poser pour le moment — reviens demain ou passe en Entraînement libre.');
+    return;
+  }
   sessionAnswers = [];
   resetSessionFlags();
   resetSessionStop();
+  relearnCount = new Map();
+  sessionKind = kind;
+  sessionKey  = newSessionKey();
   sessionStartTime = Date.now();
-  quizQueue  = buildQuizQueue(quizFilter, quizCount, quizMode);
-  quizIndex  = 0;
-  document.getElementById('quiz-setup').style.display   = 'none';
-  document.getElementById('quiz-active').style.display  = 'block';
-  document.getElementById('quiz-summary').style.display = 'none';
+  quizQueue = queue;
+  quizIndex = 0;
+  ['quiz-setup', 'quiz-summary', 'quiz-review', 'quiz-atelier'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById('quiz-active').style.display = 'block';
   showQuestion();
+}
+
+/* ── Séance du jour ── */
+
+/* Dernière série nettement ratée ou trop facile : la suivante s'ajuste */
+function lastSessionBias() {
+  const log = getQuizLog().filter(e => e.kind !== 'atelier');   // un atelier est difficile par nature
+  const last = log[log.length - 1];
+  if (!last || !last.words || last.words < 5) return null;
+  const pct = last.correct / last.words;
+  return pct < 0.70 ? 'easier' : pct > 0.92 ? 'harder' : null;
+}
+
+function dailyPlan(size) {
+  const k = currentKpis();
+  return srsComposeDaily({
+    words: vocab, progress, now: Date.now(), size,
+    budgetLeft: srsSettings.new_per_day - newWordsIntroducedToday(),
+    leechPct: k.leechShare != null && k.leechShare > 0.15 ? 0.05 : 0.10,
+    bias: lastSessionBias(),
+  });
+}
+
+function startDailySession() {
+  const plan = dailyPlan(dailySize);
+  const queue = plan.items.map(({ word, isNew }) =>
+    makeQuizItem(word, isNew ? 'forward' : srsDirection(word, progress[word.id]), { isNewWord: isNew }));
+  beginSession('daily', queue);
+}
+
+document.getElementById('btn-start-quiz').addEventListener('click', () => {
+  if (setupMode === 'daily') startDailySession();
+  else beginSession('free', buildQuizQueue(quizFilter, quizCount, quizMode));
+});
+
+/* ── Temps avant la première frappe : mesure le rappel, pas la vitesse de frappe ── */
+let qShownAt = 0, qFirstKeyAt = null, qLatencyTainted = false;
+document.getElementById('quiz-answer-input').addEventListener('input', e => {
+  if (qFirstKeyAt === null && e.target.value) qFirstKeyAt = performance.now();
+});
+// Page masquée avant la première frappe : la latence ne veut plus rien dire
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && qFirstKeyAt === null) qLatencyTainted = true;
 });
 
 function showQuestion() {
-  const item = quizQueue[quizIndex];
-  const total = quizQueue.length;
-  const pct   = Math.round((quizIndex / total) * 100);
-
-  document.getElementById('quiz-progress-fill').style.width = pct + '%';
-  document.getElementById('quiz-progress-text').textContent = `${quizIndex + 1} / ${total}`;
+  const item  = quizQueue[quizIndex];
+  // Progression : seules les questions de la série comptent, pas les re-questions
+  const mainTotal = quizQueue.filter(i => !i.relearn).length;
+  const mainPos   = quizQueue.slice(0, quizIndex + 1).filter(i => !i.relearn).length;
+  const done      = item.relearn || item.result ? mainPos : mainPos - 1;
+  document.getElementById('quiz-progress-fill').style.width = Math.round(done / Math.max(1, mainTotal) * 100) + '%';
+  document.getElementById('quiz-progress-text').textContent = `${mainPos} / ${mainTotal}` + (item.relearn ? ' · ↻' : '');
 
   const dir = item.direction;  // 'forward' | 'reverse' | 'cloze' (resolved per-item)
-  const pair = item.word.language_pair; // e.g. 'NL→FR'
-  const [srcLang, tgtLang] = pair.split('→');  // ['NL','FR']
+  const [fromLang, toLang] = itemLangs(item);
 
   const questionEl = document.getElementById('quiz-question');
   const exampleEl  = document.getElementById('quiz-example');
+  const modeLabel  = document.getElementById('quiz-mode-label');
+
+  modeLabel.textContent =
+      item.atelier   ? `🩹 Atelier — rappel ${item.atelierRound} sur 3`
+    : item.relearn   ? '↻ Re-question — pour ancrer le mot, hors score'
+    : item.isNewWord ? '🆕 Nouveau mot — tente ta chance, la fiche suit'
+    : dir === 'cloze' ? '🧩 Phrase à trou — complète le mot manquant'
+    : sessionKind === 'daily' ? (dir === 'forward' ? 'Réception — traduis' : 'Production — retrouve le mot')
+    : quizMode === 'auto' ? '🔀 Mixed mode' : (dir === 'forward' ? 'Word → Translation' : 'Translation → Word');
+
+  document.getElementById('quiz-lang-badge').innerHTML = dir === 'cloze'
+    ? `<span class="qz-direction-badge dir-forward">🧩 ${flagHtml(fromLang)} ${fromLang}</span>`
+    : `<span class="qz-direction-badge dir-${dir}">
+         ${flagHtml(fromLang)} ${fromLang} <span style="opacity:.6;font-weight:400;">→</span> ${flagHtml(toLang)} ${toLang}
+       </span>`;
 
   if (dir === 'cloze') {
     // Phrase à trou : la phrase d'exemple EST la question, la traduction sert d'indice
-    document.getElementById('quiz-mode-label').textContent = '🧩 Phrase à trou — complète le mot manquant';
-    document.getElementById('quiz-lang-badge').innerHTML =
-      `<span class="qz-direction-badge dir-forward">🧩 ${pair}</span>`;
     questionEl.textContent = item.question;
     questionEl.style.fontSize = '20px';   // une phrase entière, pas un mot isolé
     exampleEl.textContent = `Traduction : ${item.word.target_translation}`;
   } else {
-    // Direction label: shows which way the question goes
-    const fromLang = dir === 'forward' ? srcLang : tgtLang;
-    const toLang   = dir === 'forward' ? tgtLang : srcLang;
-    document.getElementById('quiz-mode-label').textContent =
-      quizMode === 'auto' ? '🔀 Mixed mode' : (dir === 'forward' ? 'Word → Translation' : 'Translation → Word');
-
-    // Visual direction badge replacing lang-badge
-    document.getElementById('quiz-lang-badge').innerHTML =
-      `<span class="qz-direction-badge dir-${dir}">
-         ${fromLang} <span style="opacity:.6;font-weight:400;">→</span> ${toLang}
-       </span>`;
-
     questionEl.textContent = item.question;
     questionEl.style.fontSize = '';
-    // Show example sentence only when asking for translation (forward), not when asking for source word
-    // (en reverse, la phrase contient le mot source = la réponse → fuite)
-    exampleEl.textContent =
-      item.word.example_sentence && dir === 'forward'
-        ? item.word.example_sentence
-        : '';
+    // La phrase d'exemple seulement quand on demande la traduction : en
+    // production, elle contient la réponse
+    exampleEl.textContent = item.word.example_sentence && dir === 'forward' ? item.word.example_sentence : '';
   }
 
   // Tip / indice — toujours affiché par défaut quand il existe
@@ -4971,16 +5724,10 @@ function showQuestion() {
     tipBtn.style.display  = 'none';
   }
 
+  // Langue attendue : drapeau dans le champ, et dans le texte d'aide
+  document.getElementById('quiz-answer-flag').innerHTML = flagHtml(toLang);
   const ansInput = document.getElementById('quiz-answer-input');
-  ansInput.value = '';
-  ansInput.className = 'qz-answer-input';
-  ansInput.disabled  = false;
-  document.getElementById('quiz-feedback').className  = 'qz-feedback';
-  document.getElementById('quiz-feedback').innerHTML  = '';
-  document.getElementById('quiz-next-row').style.display = 'none';
-  document.getElementById('btn-check').style.display  = 'inline-flex';
-  document.getElementById('btn-skip').style.display   = 'inline-flex';
-  ansInput.focus();
+  ansInput.placeholder = `Your answer in ${LANGS[toLang].name}…`;
 
   // Show/hide back button
   const prevBtn = document.getElementById('btn-prev');
@@ -4999,7 +5746,40 @@ function showQuestion() {
     streakBadge.style.display = 'none';
   }
 
+  // Question déjà répondue (retour avec « Précédent ») : lecture seule
+  if (item.result) { renderAnsweredState(item); return; }
+
+  ansInput.value = '';
+  ansInput.className = 'qz-answer-input';
+  ansInput.disabled  = false;
+  document.getElementById('quiz-feedback').className  = 'qz-feedback';
+  document.getElementById('quiz-feedback').innerHTML  = '';
+  document.getElementById('quiz-next-row').style.display = 'none';
+  document.getElementById('btn-check').style.display  = 'inline-flex';
+  document.getElementById('btn-skip').style.display   = 'inline-flex';
+  ansInput.focus();
+
+  qShownAt = performance.now();
+  qFirstKeyAt = null;
+  qLatencyTainted = document.hidden;
   startQuizTimer();
+}
+
+/* Question déjà répondue : la réponse donnée et la correction, sans rien réenregistrer */
+function renderAnsweredState(item) {
+  clearQuizTimer();
+  const r = item.result;
+  const input = document.getElementById('quiz-answer-input');
+  input.value = r.given || '';
+  input.className = 'qz-answer-input ' + (r.correct ? 'correct-flash' : 'wrong-flash');
+  input.disabled = true;
+  const fb = document.getElementById('quiz-feedback');
+  fb.className = r.feedbackClass;
+  fb.innerHTML = r.feedbackHtml;
+  document.getElementById('btn-check').style.display = 'none';
+  document.getElementById('btn-skip').style.display  = 'none';
+  document.getElementById('quiz-next-row').style.display = 'flex';
+  document.getElementById('btn-next').focus();
 }
 
 document.getElementById('btn-check').addEventListener('click', checkAnswer);
@@ -5014,11 +5794,10 @@ document.getElementById('quiz-answer-input').addEventListener('keydown', e => {
 });
 
 document.getElementById('btn-skip').addEventListener('click', () => {
-  clearQuizTimer();
   const item = quizQueue[quizIndex];
-  sessionAnswers.push({ word: item.word, correct: false, skipped: true, givenAnswer: '', direction: item.direction, question: item.question, answer: item.answer });
-  recordAnswer(item.word.id, false);
-  advanceQuiz();
+  if (!item || item.result) return;
+  clearQuizTimer();
+  revealUnanswered(item, 'skip');   // la réponse et la fiche s'affichent, puis Next
 });
 
 document.getElementById('btn-next').addEventListener('click', advanceQuiz);
@@ -5031,13 +5810,12 @@ document.getElementById('btn-tip').addEventListener('click', () => {
   tipBtn.textContent = '💡 Indice révélé';
 });
 
+/* Précédent : revoir la question d'avant et sa correction, en lecture seule.
+   Avant, on pouvait y répondre une seconde fois — et la réponse était
+   enregistrée deux fois dans quiz_progress. */
 document.getElementById('btn-prev').addEventListener('click', () => {
   if (quizIndex <= 0) return;
-  // If the current question was answered, remove it from sessionAnswers
-  if (document.getElementById('quiz-next-row').style.display !== 'none') {
-    // Already answered — pop last sessionAnswers entry if it matches current
-    if (sessionAnswers.length > 0) sessionAnswers.pop();
-  }
+  clearQuizTimer();
   quizIndex--;
   showQuestion();
 });
@@ -5105,22 +5883,35 @@ document.getElementById('btn-quiz-flag').addEventListener('click', async () => {
   syncQuizFlagBtn();   // la question a pu changer pendant l'écriture : resynchroniser sur la courante
 });
 
+/* Production néerlandaise : l'article fait partie du mot (de/het). Absent ou
+   faux, la réponse reste acceptée mais notée Difficile, et l'article est rappelé.
+   Renvoie la forme attendue quand l'article pose problème, sinon null. */
+function articleIssueFor(item, given, alt) {
+  if (item.direction !== 'reverse' || !alt) return null;
+  if (langPair(item.word)[0] !== 'NL') return null;
+  const want = (alt.match(/^(de|het)\s+/i) || [])[1];
+  if (!want) return null;
+  const got = (given.trim().match(/^(de|het|een)\s+/i) || [])[1];
+  return got && got.toLowerCase() === want.toLowerCase() ? null : alt;
+}
+
 function checkAnswer() {
-  clearQuizTimer();
   const item  = quizQueue[quizIndex];
+  if (!item || item.result) return;
   const input = document.getElementById('quiz-answer-input');
   const given = input.value.trim();
   if (!given) return;
+  clearQuizTimer();
 
   const correct      = item.answer.trim();
   // Support multiple alternatives separated by " / "  (e.g. "conduire / rouler")
   const alternatives = correct.split(/\s*\/\s*/).map(s => s.trim()).filter(Boolean);
   const givenLower   = given.toLowerCase();
-  const exact        = alternatives.some(alt => givenLower === alt.toLowerCase());
+  const exactAlt     = alternatives.find(alt => givenLower === alt.toLowerCase()) || null;
 
   // « Proche » : accents / article manquant / typo d'une lettre — sur formes normalisées
-  let closedAlt = null, closeReason = '';
-  if (!exact) {
+  let closedAlt = null, closeReason = null;
+  if (!exactAlt) {
     const gNorm = normalizeAnswer(given);
     for (const alt of alternatives) {
       const aNorm = normalizeAnswer(alt);
@@ -5129,43 +5920,122 @@ function checkAnswer() {
       if (levenshtein(gNorm, aNorm) === 1) { closedAlt = alt; closeReason = 'typo'; break; }
     }
   }
-  const close     = !!closedAlt;
-  const isCorrect = exact || close;
+  const isCorrect = !!exactAlt || !!closedAlt;
+  finishItem(item, {
+    correct: isCorrect, skipped: false, given, alternatives,
+    closeReason, closedAlt,
+    articleIssue: isCorrect ? articleIssueFor(item, given, exactAlt || closedAlt) : null,
+    latency: !qLatencyTainted && qFirstKeyAt !== null ? Math.round(qFirstKeyAt - qShownAt) : null,
+    totalMs: Math.round(performance.now() - qShownAt),
+  });
+}
 
-  const fb = document.getElementById('quiz-feedback');
-  // Extra info (temps du verbe, pluriel…) : jamais pendant la question, toujours à la correction
-  const extra = item.word.extra_info
-    ? `<div class="qz-extra-info">ℹ️ ${escHtml(item.word.extra_info)}</div>` : '';
-  if (isCorrect) {
-    input.classList.add('correct-flash');
-    if (close) {
-      fb.className = 'qz-feedback close';
-      fb.innerHTML = (closeReason === 'form'
-        ? `✓ Accepté ! <span class="qz-correct-answer">Forme exacte : "${closedAlt}"</span>`
-        : `✓ Proche ! <span class="qz-correct-answer">Accepté : "${closedAlt}"</span>`) + extra;
-    } else {
-      fb.className = 'qz-feedback correct';
-      // If multiple alternatives exist, show the others as hint
-      const others = alternatives.filter(a => a.toLowerCase() !== givenLower);
-      fb.innerHTML = (others.length
-        ? `✓ Correct ! <span class="qz-correct-answer" style="opacity:.65;font-size:12px;">Aussi valide : ${others.join(' / ')}</span>`
-        : '✓ Correct !') + extra;
-    }
-    recordAnswer(item.word.id, true);
-    sessionAnswers.push({ word: item.word, correct: true, skipped: false, givenAnswer: given, direction: item.direction, question: item.question, answer: item.answer });
+/* « Skip » ou chrono écoulé : la réponse et la fiche s'affichent, comme une erreur */
+function revealUnanswered(item, reason) {
+  finishItem(item, {
+    correct: false, skipped: true, reason, given: '', alternatives: [],
+    latency: null, totalMs: Math.round(performance.now() - qShownAt),
+  });
+}
+
+function buildFeedback(item, r, grade) {
+  const chip   = grade ? ` <span class="qz-grade g${grade}">${GRADE_LABEL[grade]}</span>` : '';
+  const answer = escHtml(item.answer.trim());
+  let cls, head;
+  if (r.skipped) {
+    cls  = 'wrong';
+    head = `${r.reason === 'timeout' ? '⏱ Time\'s up' : '⏭ Skipped'}${chip} <div class="qz-correct-answer">Correct answer: "${answer}"</div>`;
+  } else if (!r.correct) {
+    cls  = 'wrong';
+    head = `✗ Incorrect${chip} <div class="qz-correct-answer">Correct answer: "${answer}"</div>`;
+  } else if (r.articleIssue) {
+    cls  = 'close';
+    head = `✓ Presque !${chip} <span class="qz-correct-answer">L'article compte : "${escHtml(r.articleIssue)}"</span>`;
+  } else if (r.closeReason === 'form') {
+    cls  = 'close';
+    head = `✓ Accepté !${chip} <span class="qz-correct-answer">Forme exacte : "${escHtml(r.closedAlt)}"</span>`;
+  } else if (r.closeReason === 'typo') {
+    cls  = 'close';
+    head = `✓ Proche !${chip} <span class="qz-correct-answer">Accepté : "${escHtml(r.closedAlt)}"</span>`;
   } else {
-    input.classList.add('wrong-flash');
-    fb.className = 'qz-feedback wrong';
-    fb.innerHTML = `✗ Incorrect <div class="qz-correct-answer">Correct answer: "${correct}"</div>` + extra;
-    recordAnswer(item.word.id, false);
-    sessionAnswers.push({ word: item.word, correct: false, skipped: false, givenAnswer: given, direction: item.direction, question: item.question, answer: item.answer });
+    cls  = 'correct';
+    const others = r.alternatives.filter(a => a.toLowerCase() !== r.given.toLowerCase());
+    head = `✓ Correct !${chip}` + (others.length
+      ? ` <span class="qz-correct-answer" style="opacity:.65;font-size:12px;">Aussi valide : ${escHtml(others.join(' / '))}</span>` : '');
   }
+  // Fiche complète pour un mot découvert, une erreur ou un « Skip » : encoder
+  // avant de re-tester. Sinon, seulement les infos complémentaires.
+  const w = item.word;
+  const card = item.isNewWord || !r.correct
+    ? wordCardHtml(w)
+    : (w.extra_info ? `<div class="qz-extra-info">ℹ️ ${escHtml(w.extra_info)}</div>` : '');
+  const note = item.relearn ? `<div class="qz-relearn-note">↻ Re-question : hors score, sans effet sur l'espacement.</div>` : '';
+  return { cls: 'qz-feedback ' + cls, html: head + card + note };
+}
 
+/* Fin d'une question, quelle que soit l'issue : correction affichée, puis
+   enregistrement — le premier essai d'un mot passe par le SRS (recordAnswer),
+   les re-questions et les rappels d'atelier seulement par le journal. */
+function finishItem(item, r) {
+  const scheduled = !item.relearn && !item.atelier;
+  const grade = scheduled
+    ? srsGrade({ correct: r.correct, closeReason: r.closeReason, articleIssue: !!r.articleIssue, latencyMs: r.latency })
+    : null;
+
+  const fb = buildFeedback(item, r, grade);
+  const fbEl = document.getElementById('quiz-feedback');
+  fbEl.className = fb.cls;
+  fbEl.innerHTML = fb.html;
+  const input = document.getElementById('quiz-answer-input');
+  input.classList.add(r.correct ? 'correct-flash' : 'wrong-flash');
   input.disabled = true;
   document.getElementById('btn-check').style.display = 'none';
   document.getElementById('btn-skip').style.display  = 'none';
   document.getElementById('quiz-next-row').style.display = 'flex';
   document.getElementById('btn-next').focus();
+  item.result = { correct: r.correct, skipped: !!r.skipped, given: r.given || '', grade, feedbackHtml: fb.html, feedbackClass: fb.cls };
+
+  const w = item.word;
+  const answerEntry = { word: w, correct: r.correct, skipped: !!r.skipped, givenAnswer: r.given || '',
+    direction: item.direction, question: item.question, answer: item.answer, grade, isNew: !!item.isNewWord };
+  if (scheduled) {
+    const write = recordAnswer(w, grade, { direction: item.direction, close: !!(r.closeReason || r.articleIssue), latency: r.latency, totalMs: r.totalMs });
+    pendingProgressWrites.add(write);
+    write.finally(() => pendingProgressWrites.delete(write));
+    sessionAnswers.push(answerEntry);
+  } else {
+    if (w.id) {
+      const p = progress[w.id];
+      logAnswer({
+        word_id: w.id, direction: item.direction, stage: srsStage(p), grade: null, correct: r.correct,
+        close_match: !!r.closeReason, first_key_ms: r.latency ?? null, total_ms: r.totalMs ?? null,
+        is_new: !!item.isNewWord, is_relearn: true, is_leech: srsIsLeech(p),
+      });
+    }
+    if (item.atelier) sessionAnswers.push(answerEntry);   // les rappels d'atelier font le score de l'atelier
+  }
+  queueRelearn(item, r, grade);
+}
+
+/* Re-question : un mot raté (ou passé) revient 3 à 5 questions plus loin, un mot
+   découvert 2 à 3 plus loin, jusqu'à une réussite — trois fois au plus. Hors
+   score et sans effet sur l'espacement : seule la note du premier essai compte. */
+function queueRelearn(item, r, grade) {
+  if (sessionKind === 'challenge' || sessionKind === 'atelier' || !item.word) return;
+  const firstTry = !item.relearn;
+  const needed = firstTry
+    ? (grade === GRADE.AGAIN || (item.isNewWord && grade !== GRADE.EASY))
+    : !r.correct;
+  if (!needed) return;
+  const key = item.word.id || item.word.source_word;
+  const n = relearnCount.get(key) || 0;
+  if (n >= RELEARN_MAX) return;
+  relearnCount.set(key, n + 1);
+  const gap = firstTry && item.isNewWord && r.correct
+    ? 2 + Math.floor(Math.random() * 2)
+    : 3 + Math.floor(Math.random() * 3);
+  const pos = Math.min(quizQueue.length, quizIndex + 1 + gap);
+  quizQueue.splice(pos, 0, makeQuizItem(item.word, item.direction, { relearn: true, isNewWord: !!item.isNewWord }));
 }
 
 function advanceQuiz() {
@@ -5224,7 +6094,7 @@ function stopQuiz() {
     showToast('Quiz stopped — nothing was answered, so there is nothing to review.');
     return;
   }
-  sessionStopInfo = { answered: sessionAnswers.length, planned: quizQueue.length };
+  sessionStopInfo = { answered: sessionAnswers.length, planned: quizQueue.filter(i => !i.relearn).length };
   endSession();
 }
 
@@ -5239,9 +6109,9 @@ function getQuizLog() {
   catch { return []; }
 }
 
-function saveQuizSession(words, correct, durationSec) {
+function saveQuizSession(words, correct, durationSec, kind = 'free') {
   const log = getQuizLog();
-  log.push({ date: _today(), words, correct, durationSec });
+  log.push({ date: _today(), words, correct, durationSec, kind });
   // Keep last 365 entries
   if (log.length > 365) log.splice(0, log.length - 365);
   localStorage.setItem('lazypo_quiz_log', JSON.stringify(log));
@@ -5453,12 +6323,18 @@ function endSession() {
   const total   = sessionAnswers.length;
   const correct = sessionAnswers.filter(a => a.correct).length;
   const sessionWordIds = sessionAnswers.map(a => a.word.id);
-  saveQuizSession(total, correct, durationSec);
-  postMultiSession(correct, total, durationSec, 'vocab', quizFilter || 'all', quizMode || 'auto', sessionWordIds);
+  saveQuizSession(total, correct, durationSec, sessionKind);
+  if (sessionKind === 'atelier') {
+    finishAtelier();   // un atelier n'est pas posté au fil
+  } else {
+    postMultiSession(correct, total, durationSec, 'vocab',
+      sessionKind === 'daily' ? 'daily' : (quizFilter || 'all'),
+      sessionKind === 'daily' ? 'auto'  : (quizMode || 'auto'), sessionWordIds);
+  }
 
-  // Review : les erreurs, plus les mots flaggés pendant le test — même répondus
-  // juste ou passés —, dans l'ordre de la session.
-  const isWrong   = a => !a.correct && !a.skipped;
+  // Review : les erreurs — « Skip » et chrono écoulé compris —, plus les mots
+  // flaggés pendant le test (même répondus juste), dans l'ordre de la session.
+  const isWrong   = a => !a.correct;
   const isFlagged = a => !!(a.word.id && sessionFlaggedIds.has(a.word.id));
   const toReview  = sessionAnswers.filter(a => isWrong(a) || isFlagged(a));
   if (toReview.length > 0) {
@@ -5500,6 +6376,9 @@ function showReviewItem() {
 
   document.getElementById('review-asked').textContent   = asked;
   document.getElementById('review-correct').textContent = correct;
+  const [askLang, ansLang] = itemLangs({ word: a.word, direction: a.direction });
+  document.getElementById('review-asked-flag').innerHTML   = flagHtml(askLang);
+  document.getElementById('review-correct-flag').innerHTML = flagHtml(ansLang);
 
   const infoEl = document.getElementById('review-extra-info');
   infoEl.textContent    = a.word.extra_info ? 'ℹ️ ' + a.word.extra_info : '';
@@ -5734,6 +6613,157 @@ document.getElementById('review-btn-prev').addEventListener('click', () => {
   if (reviewIndex > 0) { reviewIndex--; showReviewItem(); }
 });
 
+/* ═══════════════════════════════════════════════════════════
+   ATELIER SANGSUES
+   Un mot qui cumule 4 oublis pour moins de 50 % de réussite ne s'apprend pas en
+   le reposant : on change d'encodage. Relire la fiche, écrire une phrase à soi
+   ou un moyen mnémotechnique (enregistré comme indice), puis trois rappels
+   espacés. Réussi au dernier rappel, le mot est « sauvé » : oublis remis à zéro,
+   retour demain dans la rotation normale. Ou bien on le suspend.
+═══════════════════════════════════════════════════════════ */
+const ATELIER_BATCH = 8;
+let atelierBatch  = [];
+let atelierIdx    = 0;
+let atelierDone   = [];
+let atelierResult = null;   // { saved, tried } de la dernière séance d'atelier
+
+function leechList() {
+  const now = Date.now();
+  return vocab
+    .filter(w => !w.suspended_at && srsIsLeech(progress[w.id]))
+    .sort((a, b) => (srsIsDue(progress[b.id], now) - srsIsDue(progress[a.id], now))
+      || (srsLapses(progress[b.id]) - srsLapses(progress[a.id])));
+}
+
+function openAtelier() {
+  atelierBatch = leechList().slice(0, ATELIER_BATCH);
+  atelierIdx   = 0;
+  atelierDone  = [];
+  document.getElementById('quiz-setup').style.display   = 'none';
+  document.getElementById('quiz-atelier').style.display = 'block';
+  renderAtelier();
+}
+
+function closeAtelier() {
+  document.getElementById('quiz-atelier').style.display = 'none';
+  document.getElementById('quiz-setup').style.display   = 'block';
+  updateAvailNote();
+}
+
+function renderAtelier() {
+  const card = document.getElementById('atl-card');
+  renderSuspendedList();
+  if (!atelierBatch.length) {
+    card.innerHTML = '<p class="atl-empty">Aucune sangsue pour l\'instant.</p>';
+    return;
+  }
+  if (atelierIdx >= atelierBatch.length) {
+    const n = atelierDone.length;
+    card.innerHTML = n
+      ? `<div class="atl-ready"><div>${n} mot${n > 1 ? 's' : ''} relu${n > 1 ? 's' : ''}. Chacun revient maintenant trois fois, espacé des autres.</div>
+           <div><button class="btn-primary" id="atl-start" type="button">Lancer les rappels</button></div></div>`
+      : '<p class="atl-empty">Aucun mot à rappeler : tous ont été passés ou suspendus.</p>';
+    document.getElementById('atl-start')?.addEventListener('click', startAtelierRecalls);
+    return;
+  }
+  const w = atelierBatch[atelierIdx];
+  const p = progress[w.id];
+  card.innerHTML = `
+    <div class="atl-count">Mot ${atelierIdx + 1} / ${atelierBatch.length} · ${srsLapses(p)} oublis · ${Math.round(srsRate(p) * 100)} % de réussite</div>
+    ${wordCardHtml(w)}
+    <label class="atl-label" for="atl-tip">Ta phrase ou ton moyen mnémotechnique — il deviendra l'indice affiché pendant la question</label>
+    <textarea id="atl-tip" class="atl-tip" maxlength="300" placeholder="Ex. : de fiets — « la fiesta à vélo »">${escHtml(w.tips || '')}</textarea>
+    <div class="atl-actions">
+      <button class="btn-primary" id="atl-save" type="button">Enregistrer et continuer</button>
+      <button class="btn-secondary" id="atl-skip" type="button">Passer</button>
+      <button class="btn-ghost danger" id="atl-suspend" type="button">⏸ Suspendre ce mot</button>
+    </div>`;
+  document.getElementById('atl-save').addEventListener('click', atelierSave);
+  document.getElementById('atl-skip').addEventListener('click', () => { atelierIdx++; renderAtelier(); });
+  document.getElementById('atl-suspend').addEventListener('click', atelierSuspend);
+  document.getElementById('atl-tip').focus();
+}
+
+async function atelierSave() {
+  const w   = atelierBatch[atelierIdx];
+  const tip = document.getElementById('atl-tip').value.trim().slice(0, 300);
+  if (tip !== (w.tips || '')) {
+    const ok = await saveWordPatch(w.id, { tips: tip || null });   // toast d'erreur géré par saveWordPatch
+    if (!ok) return;
+  }
+  atelierDone.push(w);
+  atelierIdx++;
+  renderAtelier();
+}
+
+async function atelierSuspend() {
+  const w  = atelierBatch[atelierIdx];
+  const ok = await saveWordPatch(w.id, { suspended_at: new Date().toISOString() });
+  if (!ok) return;
+  showToast('Mot suspendu — il ne sortira plus dans les séries. Réactivable ici.');
+  atelierIdx++;
+  renderAtelier();
+}
+
+/* Trois tours successifs : A B C, A B C, A B C — chaque mot espacé des autres */
+function startAtelierRecalls() {
+  const queue = [];
+  for (let round = 1; round <= 3; round++) {
+    atelierDone.forEach(w => queue.push(makeQuizItem(w, srsDirection(w, progress[w.id]), { atelier: true, atelierRound: round })));
+  }
+  atelierResult = null;
+  beginSession('atelier', queue);
+}
+
+/* Fin d'une séance d'atelier : le dernier rappel de chaque mot décide */
+function finishAtelier() {
+  const last = new Map();
+  sessionAnswers.forEach(a => { if (a.word.id) last.set(a.word.id, a); });
+  const saved = [...last.values()].filter(a => a.correct).map(a => a.word);
+  saved.forEach(w => {
+    const write = rescueLeech(w);
+    pendingProgressWrites.add(write);
+    write.finally(() => pendingProgressWrites.delete(write));
+  });
+  atelierResult = { saved: saved.length, tried: last.size };
+}
+
+async function rescueLeech(word) {
+  const p = progress[word.id];
+  if (!p || !currentUser) return;
+  const patch = srsRescue(p, Date.now());
+  progress[word.id] = { ...p, ...patch };
+  const payload = {
+    user_id: currentUser.id, word_id: word.id, correct: p.correct, attempts: p.attempts,
+    ease_factor: patch.ease_factor, interval_days: patch.interval_days, last_tested: patch.last_tested,
+    ...(progressV2Missing ? {} : { lapses: 0 }),
+  };
+  const { error } = await window.sb.from('quiz_progress').upsert(payload, { onConflict: 'user_id,word_id' });
+  if (error && !progressV2Missing && /lapses/i.test(error.message || '')) {
+    progressV2Missing = true;   // sans la colonne, les oublis repartent de attempts − correct au rechargement
+    delete payload.lapses;
+    await window.sb.from('quiz_progress').upsert(payload, { onConflict: 'user_id,word_id' });
+  }
+}
+
+function renderSuspendedList() {
+  const el   = document.getElementById('atl-suspended-list');
+  const list = vocab.filter(w => w.suspended_at);
+  el.innerHTML = list.length
+    ? list.map(w => `<div class="atl-susp-row"><span>${escHtml(w.source_word)} → ${escHtml(w.target_translation)}</span>
+        <button class="btn-ghost" type="button" data-unsuspend="${w.id}">Réactiver</button></div>`).join('')
+    : '<div class="atl-empty">Aucun mot suspendu.</div>';
+  el.querySelectorAll('[data-unsuspend]').forEach(btn => btn.addEventListener('click', async () => {
+    const ok = await saveWordPatch(btn.dataset.unsuspend, { suspended_at: null });
+    if (!ok) return;
+    showToast('Mot réactivé — il revient dans les séries.');
+    renderSuspendedList();
+  }));
+}
+
+document.getElementById('btn-open-atelier').addEventListener('click', openAtelier);
+document.getElementById('atl-close').addEventListener('click', closeAtelier);
+
 function showSummary() {
   document.getElementById('quiz-active').style.display  = 'none';
   document.getElementById('quiz-summary').style.display = 'block';
@@ -5752,6 +6782,17 @@ function showSummary() {
 
   const stars = pct >= 80 ? '⭐⭐⭐' : pct >= 50 ? '⭐⭐' : '⭐';
   document.getElementById('summary-stars').textContent = stars;
+
+  // Ce que la séance a fait d'autre que noter : mots découverts, re-questions, atelier
+  const notes = [];
+  const nNew  = sessionAnswers.filter(a => a.isNew).length;
+  const nRe   = quizQueue.filter(i => i.relearn && i.result).length;
+  if (nNew) notes.push(`🆕 ${nNew} new word${nNew > 1 ? 's' : ''} discovered`);
+  if (nRe)  notes.push(`↻ ${nRe} re-ask${nRe > 1 ? 's' : ''} to anchor missed or new words`);
+  if (sessionKind === 'atelier' && atelierResult) {
+    notes.push(`🩹 ${atelierResult.saved} of ${atelierResult.tried} leech${atelierResult.tried > 1 ? 'es' : ''} rescued — back in the normal rotation`);
+  }
+  document.getElementById('summary-notes').innerHTML = notes.map(escHtml).join('<br>');
 
   // Série arrêtée avant la fin : le dire, sinon « 30 / 37 » laisse croire à une
   // série de 37. Arrêtée après la dernière réponse, elle est complète : rien à dire.
@@ -5812,8 +6853,11 @@ function showSummary() {
   document.getElementById('sf-total').textContent  = sfTotal.toLocaleString('fr-FR');
   if (sfStreak === 0) document.getElementById('sf-streak').style.color = 'var(--muted)';
 
-  // refresh progress data for rendering
-  loadProgress().then(() => { renderProgress(); renderGameStats(); });
+  // Rechargement de la progression — après les dernières écritures, sinon une
+  // réponse encore en vol reviendrait à son état d'avant
+  Promise.allSettled([...pendingProgressWrites])
+    .then(() => loadProgress())
+    .then(() => { renderProgress(); renderGameStats(); updateAvailNote(); });
   // Mot corrigé/flaggé pendant la review → une seule repagination, ici, hors review
   flushVocabDirty();
 }
@@ -5863,8 +6907,66 @@ function getWordStatus(wordId) {
   return 'learning';
 }
 
+/* ── Pilotage de l'apprentissage : les KPI du moteur, avec cible et statut ── */
+function renderKpiPanel() {
+  const grid = document.getElementById('kpi-grid');
+  if (!grid) return;
+  const k   = currentKpis();
+  const N   = srsSettings.new_per_day;
+  const pct = v => v == null ? '—' : Math.round(v * 100) + ' %';
+  const one = v => v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('fr-FR');
+  const ST  = { good: 'dans la cible', warn: 'à surveiller', bad: 'hors cible', na: 'pas encore mesurable' };
+  const band = (v, good, warn, higherIsBetter = true) =>
+    v == null ? 'na' : higherIsBetter ? (v >= good ? 'good' : v >= warn ? 'warn' : 'bad') : (v <= good ? 'good' : v <= warn ? 'warn' : 'bad');
+  const deltaRet = k.retention != null && k.retentionPrev != null
+    ? ` · ${k.retention >= k.retentionPrev ? '▲' : '▼'} ${Math.abs(Math.round((k.retention - k.retentionPrev) * 100))} pts sur 7 j` : '';
+
+  const cards = [
+    { star: true, label: 'Mots acquis (production à 21 jours ou plus)', value: k.acquiredNow,
+      target: `+${k.acquired7} cette semaine · cible : une courbe qui monte`,
+      st: k.answers7 ? (k.acquired7 > 0 ? 'good' : 'warn') : 'na' },
+    { label: 'Nouveaux mots par jour (7 j)', value: one(k.newPerDay), target: `cible : ${N} par jour (budget du régulateur)`,
+      st: k.answers7 ? band(k.newPerDay, N * 0.8, N * 0.4) : 'na' },
+    { label: 'Rétention à l\'échéance (1er essai, 7 j)', value: pct(k.retention), target: `cible : 85 à 90 % · ${k.retentionN} révisions${deltaRet}`,
+      st: band(k.retention, 0.85, 0.75) },
+    { label: 'Retard (mots dus ÷ questions par jour)', value: k.backlogDays == null ? `${k.dueCount} dus` : one(k.backlogDays) + ' j',
+      target: `${k.dueCount} mots dus · cible : moins d'un jour`, st: band(k.backlogDays, 1, 2, false) },
+    { label: 'Sangsues : part de l\'effort (7 j)', value: pct(k.leechShare), target: `${k.leechCount} sangsue${k.leechCount > 1 ? 's' : ''} · cible : moins de 10 %`,
+      st: band(k.leechShare, 0.10, 0.15, false) },
+    { label: 'Nouveaux mots retrouvés au rappel (7 j)', value: pct(k.newRecall), target: 'cible : 80 % ou plus',
+      st: band(k.newRecall, 0.8, 0.6) },
+    { label: 'Tes mots en attente de 1re question', value: k.waitingCount,
+      target: `âge médian ${k.waitMedianDays == null ? '—' : Math.round(k.waitMedianDays) + ' j'} · cible : 2 jours ou moins`,
+      st: k.waitingCount ? band(k.waitMedianDays, 2, 7, false) : 'good' },
+    { label: 'Écart réception / production (7 j)', value: k.gap == null ? '—' : Math.round(k.gap * 100) + ' pts',
+      target: `réception ${pct(k.recvRate)} · production ${pct(k.prodRate)} · cible : moins de 15 pts`,
+      st: band(k.gap, 0.15, 0.25, false) },
+    { label: 'Temps avant la 1re frappe (médiane, 7 j)', value: k.latencyMedian == null ? '—' : one(k.latencyMedian / 1000) + ' s',
+      target: 'cible : en baisse — le mot revient sans effort', st: band(k.latencyMedian, 3000, 6000, false) },
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi-card${c.star ? ' star' : ''}">
+      <div class="kpi-label">${escHtml(c.label)}</div>
+      <div class="kpi-value">${escHtml(String(c.value))}</div>
+      <div class="kpi-target">${escHtml(c.target)}</div>
+      <div class="kpi-status ${c.st}">${ST[c.st]}</div>
+    </div>`).join('');
+
+  const st = k.stages;
+  document.getElementById('kpi-stages').innerHTML =
+    `Parcours : <span><b>${st.new}</b> nouveaux</span> <span><b>${st.learn}</b> en apprentissage</span>`
+    + ` <span><b>${st.recv}</b> en réception</span> <span><b>${st.prod}</b> en production</span>`
+    + ` <span><b>${st.acquired}</b> acquis</span> <span><b>${st.suspended}</b> suspendus</span>`;
+  document.getElementById('kpi-sub').textContent =
+    `${k.answers7} réponse${k.answers7 > 1 ? 's' : ''} sur 7 jours · budget : ${N} nouveaux mots par jour`;
+  document.getElementById('kpi-note').textContent = answersLogMissing
+    ? 'Journal des réponses indisponible : passe quiz_srs_v2.sql dans Supabase. En attendant, seuls les indicateurs tirés de l\'état des mots sont calculés.'
+    : (srsSettings.last_reason ? 'Régulateur — ' + srsSettings.last_reason : '');
+}
+
 function renderProgress() {
   renderGameStats();  // always refresh gamified stats when progress view renders
+  renderKpiPanel();
 
   // Stats
   const total    = vocab.length;
@@ -6619,20 +7721,24 @@ vbUpdateNote();
    Cutoff: 00:00 UTC
 ═══════════════════════════════════════════════════════════ */
 
+/* Réalignée sur l'apprentissage (moteur v2) : on gagne de l'XP en acquérant
+   des mots, en tenant la rétention et en soldant le retard — plus en enchaînant
+   des séries longues ou faciles. Les anciennes règles (quiz parfait, quiz de
+   20+ questions, maîtrise au taux, récupération, diversité des directions)
+   gardent leur libellé pour l'historique, mais ne rapportent plus rien. */
 const XP_RULES = {
   STREAK_BASE:             30,   // × (milestone/5)
   STREAK_INTERVAL:          5,   // every 5 days
   FIVE_WORD_DAILY:         25,
   FIVE_WORD_THRESHOLD:      5,
-  QUIZ_PERFECT:            20,
-  QUIZ_LONG:               15,
-  QUIZ_LONG_MIN:           20,   // questions
-  MASTERY_PER_WORD:        10,
-  MASTERY_DAILY_CAP:       50,
-  RECOVERY_PER_WORD:       15,
-  RECOVERY_THRESHOLD:    0.75,
+  DAILY_SESSION:           15,   // une séance du jour d'au moins 10 questions
+  DAILY_SESSION_MIN:       10,
+  ACQUIRED_PER_WORD:       10,   // mot acquis (production à 21 j ou plus), crédité une fois
+  ACQUIRED_DAILY_CAP:      50,
+  RETENTION:               10,   // rétention à l'échéance ≥ 85 % sur 7 jours
+  RETENTION_TARGET:      0.85,
+  BACKLOG_CLEARED:         20,   // plus aucune révision due
   DIVERSITY_MODES:         10,
-  DIVERSITY_DIRECTIONS:    10,
   SOCIAL_FIRST_COMMENT:     5,
 };
 
@@ -6703,9 +7809,9 @@ async function runXpReconciliation() {
     const todayStart = today + 'T00:00:00.000Z';
     const todayEnd   = today + 'T23:59:59.999Z';
 
-    const [{ data: sessions }, { count: commentsCount }, progressRes] = await Promise.all([
+    const [{ data: sessions }, { count: commentsCount }, { data: progressRows }] = await Promise.all([
       window.sb.from('quiz_sessions')
-        .select('score, total, mode, direction')
+        .select('score, total, mode, lang, direction')
         .eq('user_id', currentUser.id)
         .gte('created_at', todayStart).lte('created_at', todayEnd),
       window.sb.from('quiz_session_comments')
@@ -6713,32 +7819,22 @@ async function runXpReconciliation() {
         .eq('user_id', currentUser.id)
         .gte('created_at', todayStart),
       window.sb.from('quiz_progress')
-        .select('word_id, attempts, correct, recent')
+        .select('*')   // stage / interval_days : quelles que soient les colonnes migrées
         .eq('user_id', currentUser.id),
     ]);
-    let progressRows = progressRes.data;
-    if (progressRes.error) {
-      // Colonne `recent` pas encore migrée — retomber sur la sélection historique
-      ({ data: progressRows } = await window.sb.from('quiz_progress')
-        .select('word_id, attempts, correct')
-        .eq('user_id', currentUser.id));
-    }
+    // Pas encore d'activité aujourd'hui : ne rien marquer. Avant, la réconciliation
+    // lancée au chargement de la page marquait la journée comme faite avant toute
+    // séance — les règles liées aux séances (et la série de jours) ne pouvaient
+    // presque jamais tomber. Elle repart après la première séance postée.
+    if (!(sessions || []).length) { xpReconciling = false; return; }
+    // Le journal sert à la règle de rétention : l'attendre s'il est en train de charger
+    if (answerLogPromise) await answerLogPromise;
 
-    /* ── Detect new masteries ── */
+    /* ── Mots acquis pas encore crédités (mastered_word_ids sert d'anti double crédit) ── */
     const alreadyMastered = new Set(userXpState.mastered_word_ids || []);
-    const newMasteries   = [];
-    const recoveries     = [];
-    for (const p of (progressRows || [])) {
-      // Fenêtre glissante : cohérent avec getWordStatus (les vieux échecs ne bloquent plus la maîtrise)
-      const rate = p.attempts > 0 ? wordRate(p) : 0;
-      const mastered = rate >= 0.80 && p.attempts >= 3;
-      if (mastered && !alreadyMastered.has(p.word_id)) newMasteries.push(p.word_id);
-      // Recovery: word was in rework (tracked by low historical rate) — simplified:
-      // fire when rate > RECOVERY_THRESHOLD for any word that wasn't already mastered
-      if (!mastered && rate > XP_RULES.RECOVERY_THRESHOLD && p.attempts >= 3 && !alreadyMastered.has(p.word_id)) {
-        recoveries.push(p.word_id);
-      }
-    }
+    const newAcquired = (progressRows || [])
+      .filter(p => srsIsAcquired(p) && !alreadyMastered.has(p.word_id))
+      .map(p => p.word_id);
 
     /* ── Streak ── */
     const wasActive = (sessions || []).length > 0;
@@ -6767,42 +7863,38 @@ async function runXpReconciliation() {
       breakdown.five_word = XP_RULES.FIVE_WORD_DAILY;
     }
 
-    // Rule 3: Quiz performance
-    let perfectXp = 0, longXp = 0;
-    for (const s of (sessions || [])) {
-      if (s.total > 0 && s.score === s.total) { perfectXp += XP_RULES.QUIZ_PERFECT; }
-      if (s.total >= XP_RULES.QUIZ_LONG_MIN)  { longXp    += XP_RULES.QUIZ_LONG;    }
+    // Rule 3: Séance du jour menée (une fois par jour)
+    if ((sessions || []).some(s => s.mode === 'vocab' && s.lang === 'daily' && s.total >= XP_RULES.DAILY_SESSION_MIN)) {
+      xp += XP_RULES.DAILY_SESSION;
+      breakdown.daily_session = XP_RULES.DAILY_SESSION;
     }
-    if (perfectXp) { xp += perfectXp; breakdown.quiz_perfect = perfectXp; }
-    if (longXp)    { xp += longXp;    breakdown.quiz_long    = longXp;    }
 
-    // Rule 3b: Mastery (daily cap 50 XP)
-    let masteryXp = 0;
+    // Rule 3b: Mots acquis (plafond 50 XP par jour)
+    let acquiredXp = 0;
     const awardedMasteriesNow = [];
-    for (const wid of newMasteries) {
-      if (masteryXp + XP_RULES.MASTERY_PER_WORD <= XP_RULES.MASTERY_DAILY_CAP) {
-        masteryXp += XP_RULES.MASTERY_PER_WORD;
-        awardedMasteriesNow.push(wid);
-      }
+    for (const wid of newAcquired) {
+      if (acquiredXp + XP_RULES.ACQUIRED_PER_WORD > XP_RULES.ACQUIRED_DAILY_CAP) break;
+      acquiredXp += XP_RULES.ACQUIRED_PER_WORD;
+      awardedMasteriesNow.push(wid);
     }
-    if (masteryXp) { xp += masteryXp; breakdown.mastery = masteryXp; }
+    if (acquiredXp) { xp += acquiredXp; breakdown.acquired = acquiredXp; }
 
-    // Rule 4: Recovery
-    let recoveryXp = 0;
-    for (const _ of recoveries) { recoveryXp += XP_RULES.RECOVERY_PER_WORD; }
-    if (recoveryXp) { xp += recoveryXp; breakdown.recovery = recoveryXp; }
+    // Rule 4: Rétention à l'échéance tenue, et retard soldé
+    const kpi = currentKpis();
+    if (kpi.retentionN >= SRS2.REGULATOR_MIN_DUE && kpi.retention >= XP_RULES.RETENTION_TARGET) {
+      xp += XP_RULES.RETENTION;
+      breakdown.retention = XP_RULES.RETENTION;
+    }
+    if (wasActive && kpi.dueCount === 0) {
+      xp += XP_RULES.BACKLOG_CLEARED;
+      breakdown.backlog_cleared = XP_RULES.BACKLOG_CLEARED;
+    }
 
     // Rule 5: Diversity — modes
     const modes = [...new Set((sessions || []).map(s => s.mode))];
     if (modes.includes('vocab') && (modes.includes('grammar') || modes.includes('verbes'))) {
       xp += XP_RULES.DIVERSITY_MODES;
       breakdown.diversity_modes = XP_RULES.DIVERSITY_MODES;
-    }
-    // Diversity — directions (vocab only)
-    const dirs = [...new Set((sessions || []).filter(s => s.mode === 'vocab' && s.direction !== 'auto').map(s => s.direction))];
-    if (dirs.length >= 2) {
-      xp += XP_RULES.DIVERSITY_DIRECTIONS;
-      breakdown.diversity_directions = XP_RULES.DIVERSITY_DIRECTIONS;
     }
 
     // Rule 6: Social — first comment of the day
@@ -6859,6 +7951,10 @@ async function showXpBreakdown() {
     quiz_long:           '📏 Quiz 20+ questions',
     mastery:             '🏆 Mots maîtrisés',
     recovery:            '💪 Récupération',
+    daily_session:       '📅 Séance du jour',
+    acquired:            '🏆 Mots acquis',
+    retention:           '🎯 Rétention ≥ 85 %',
+    backlog_cleared:     '🧹 Retard soldé',
     diversity_modes:     '🔀 Diversité modes',
     diversity_directions:'↔️ Diversité directions',
     social_comment:      '💬 Commentaire social',
@@ -7294,29 +8390,14 @@ document.getElementById('feed-load-more').addEventListener('click', () => multiL
 function launchChallengeQuiz(wordIds) {
   const words = vocab.filter(w => wordIds.includes(w.id));
   if (!words.length) { showToast('Mots non disponibles'); return; }
-  sessionAnswers = [];
-  resetSessionFlags();
-  resetSessionStop();
-  sessionStartTime = Date.now();
-  quizQueue = words.map(word => {
-    const dir = Math.random() < 0.5 ? 'forward' : 'reverse';
-    return {
-      word,
-      question: dir === 'forward' ? word.source_word : word.target_translation,
-      answer:   dir === 'forward' ? word.target_translation : word.source_word,
-      direction: dir,
-    };
-  });
-  quizIndex = 0;
+  // Un défi reste un test : directions au hasard, pas de re-question
+  const queue = words.map(word => makeQuizItem(word, Math.random() < 0.5 ? 'forward' : 'reverse'));
   // Switch to quiz tab and show active
   document.querySelectorAll('.qz-tab').forEach(t => t.classList.remove('active'));
   document.querySelector('[data-tab="quiz"]')?.classList.add('active');
   document.querySelectorAll('.qz-view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-quiz')?.classList.add('active');
-  document.getElementById('quiz-setup').style.display   = 'none';
-  document.getElementById('quiz-active').style.display  = 'block';
-  document.getElementById('quiz-summary').style.display = 'none';
-  showQuestion();
+  beginSession('challenge', queue);
   showToast('🎯 Challenge lancé !');
 }
 

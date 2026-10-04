@@ -118,6 +118,26 @@ cockpit widget read it and keep no copy. Four rules:
 `pi_schema.sql` adds `profiles.pi jsonb` and, like every other `.sql` here, is run by hand.
 Without it the feature degrades to localStorage-only rather than breaking.
 
+## The quiz engine (v2, October 2026)
+
+`quiz.html` composes a **daily session** (`srsComposeDaily`) and moves each word through
+stages (learn → reception → production). `KNOWLEDGE_QUIZ.md` §5 has the details; the
+traps:
+
+1. **Decision logic lives in the `SRS-PURE-BEGIN … SRS-PURE-END` block** — pure functions,
+   no DOM, no network, no globals. Keep it that way: it is tested by extracting the block
+   and running it under Node.
+2. **Only the first attempt of a word in a session touches `quiz_progress`.** Re-asks and
+   atelier recalls go to the `quiz_answers` journal only (`is_relearn`). Routing them through
+   `recordAnswer()` would double-count and reset intervals.
+3. **Never multiply an interval without looking at the elapsed time.** The old
+   `iv = round(iv * ef)` on early reviews pushed words to 76 488 days. `srsNext()` handles
+   early reviews; don't add a shortcut around it.
+4. **New words get a reserved share of the daily session**, not the leftovers after due
+   reviews — that was the bug behind "0 new words in any series of 5 to 200".
+5. `quiz_srs_v2.sql` is run by hand. Without it the front degrades (`progressV2Missing`,
+   `answersLogMissing`) instead of breaking — keep both fallbacks when touching writes.
+
 ## Conventions
 
 - **Commits** — conventional style with a scope, then an em-dash clause:
