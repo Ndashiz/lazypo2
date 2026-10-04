@@ -1161,6 +1161,9 @@ body { padding-left: 64px; }
    Pointillé = déjà flaggé avant le test, pas encore marqué pour la review. */
 .qz-quiz-flag { margin-left: auto; margin-right: 12px; padding: 5px 12px; font-size: 12.5px; }
 .qz-quiz-flag.pre-flagged { color: var(--warning); border-style: dashed; border-color: rgba(245,158,11,.4); }
+/* Arrêter la série en cours — armé au premier clic, le second confirme (pas de confirm() : iframe Jarvis) */
+.qz-stop-btn.armed { color: var(--warning); border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.1); }
+.qz-stopped-note { font-size: 13px; line-height: 1.5; color: var(--muted); }
 .review-asked-row {
   display: flex; justify-content: space-between; align-items: center; gap: 8px;
   flex-wrap: wrap; margin-bottom: 10px;
@@ -2029,6 +2032,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
   .qz-answer-input { flex: 1 1 100%; }
   #btn-check, #btn-skip { flex: 1 1 0; padding: 12px 16px !important; }
   .qz-action-row > button { flex: 1 1 auto; }
+  #btn-quiz-stop { flex: 0 0 auto; }   /* reste à sa taille, à droite : pas un bouton principal */
   .qz-summary-card { padding: 28px 18px; }
   .qz-score-big { font-size: 44px; }
   .qz-missed-item { flex-wrap: wrap; gap: 4px; }
@@ -2593,6 +2597,9 @@ tr.row-selected { background: rgba(59,130,246,.05); }
       <div class="qz-action-row quiz-nav-row">
         <button class="btn-secondary" id="btn-prev" style="display:none;">← Précédent</button>
         <div style="flex:1"></div>
+        <!-- Arrêter la série : la correction porte sur les questions déjà répondues -->
+        <button class="btn-ghost qz-stop-btn" id="btn-quiz-stop" type="button"
+                title="Arrêter la série et voir la correction des questions déjà répondues">⏹ Stop</button>
       </div>
       <div class="qz-action-row" id="quiz-next-row" style="display:none;">
         <button class="btn-primary" id="btn-next">Next →</button>
@@ -2691,6 +2698,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <div class="lbl">Wrong</div>
           </div>
         </div>
+        <div class="qz-stopped-note" id="summary-stopped" style="display:none;"></div>
       </div>
 
       <!-- Session stats footer (streak, time, total) -->
@@ -4893,6 +4901,7 @@ function shuffle(arr) {
 document.getElementById('btn-start-quiz').addEventListener('click', () => {
   sessionAnswers = [];
   resetSessionFlags();
+  resetSessionStop();
   sessionStartTime = Date.now();
   quizQueue  = buildQuizQueue(quizFilter, quizCount, quizMode);
   quizIndex  = 0;
@@ -5167,6 +5176,56 @@ function advanceQuiz() {
   } else {
     showQuestion();
   }
+}
+
+/* ── Arrêter la série en cours ─────────────────────────────────────
+   Une série (de 200, typiquement) qu'il faut interrompre se termine sur les
+   questions déjà répondues : review des erreurs, résumé et post au fil, comme
+   une fin normale. La question affichée sans réponse ne compte pas — rien
+   n'est écrit pour elle, le SRS ne bouge pas. Le premier clic arme le bouton,
+   le second (dans les 5 s) confirme : pas de confirm(), la page tourne en
+   iframe chez Jarvis. */
+let quizStopArmed   = null;   // timeout du bouton armé ; null = au repos
+let sessionStopInfo = null;   // { answered, planned } quand la série a été arrêtée avant la fin
+
+function disarmQuizStop() {
+  clearTimeout(quizStopArmed);
+  quizStopArmed = null;
+  const btn = document.getElementById('btn-quiz-stop');
+  btn.classList.remove('armed');
+  btn.textContent = '⏹ Stop';
+}
+
+/* Appelée au départ de chaque session (setup et Challenge Back) */
+function resetSessionStop() {
+  disarmQuizStop();
+  sessionStopInfo = null;
+}
+
+document.getElementById('btn-quiz-stop').addEventListener('click', () => {
+  if (!quizStopArmed) {
+    const btn = document.getElementById('btn-quiz-stop');
+    btn.classList.add('armed');
+    btn.textContent = sessionAnswers.length ? '⏹ Confirm: see results' : '⏹ Confirm: leave quiz';
+    quizStopArmed = setTimeout(disarmQuizStop, 5000);
+    return;
+  }
+  disarmQuizStop();
+  stopQuiz();
+});
+
+function stopQuiz() {
+  clearQuizTimer();
+  // Rien de répondu : rien à corriger ni à poster au fil, retour au setup
+  if (!sessionAnswers.length) {
+    document.getElementById('quiz-active').style.display = 'none';
+    document.getElementById('quiz-setup').style.display  = 'block';
+    updateAvailNote();
+    showToast('Quiz stopped — nothing was answered, so there is nothing to review.');
+    return;
+  }
+  sessionStopInfo = { answered: sessionAnswers.length, planned: quizQueue.length };
+  endSession();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -5693,6 +5752,15 @@ function showSummary() {
 
   const stars = pct >= 80 ? '⭐⭐⭐' : pct >= 50 ? '⭐⭐' : '⭐';
   document.getElementById('summary-stars').textContent = stars;
+
+  // Série arrêtée avant la fin : le dire, sinon « 30 / 37 » laisse croire à une
+  // série de 37. Arrêtée après la dernière réponse, elle est complète : rien à dire.
+  const stopEl = document.getElementById('summary-stopped');
+  const left   = sessionStopInfo ? sessionStopInfo.planned - sessionStopInfo.answered : 0;
+  stopEl.style.display = left > 0 ? 'block' : 'none';
+  stopEl.textContent   = left > 0
+    ? `⏹ Stopped after ${sessionStopInfo.answered} of ${sessionStopInfo.planned} questions — the other ${left} weren't counted.`
+    : '';
 
   // Mots flaggés pendant le test et toujours flaggés : un flag retiré ou un mot
   // supprimé pendant la review sort de la liste. Dédoublonné par id.
@@ -7228,6 +7296,7 @@ function launchChallengeQuiz(wordIds) {
   if (!words.length) { showToast('Mots non disponibles'); return; }
   sessionAnswers = [];
   resetSessionFlags();
+  resetSessionStop();
   sessionStartTime = Date.now();
   quizQueue = words.map(word => {
     const dir = Math.random() < 0.5 ? 'forward' : 'reverse';

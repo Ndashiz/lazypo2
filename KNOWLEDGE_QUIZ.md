@@ -208,6 +208,22 @@ Implémentation : `launchChallengeQuiz(wordSnapshots, wordIdsFallback, originalM
 
 **Fin de session** : Review des erreurs (si présentes) → résumé (score, %, temps, badge streak) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge).
 
+> **Arrêter une série en cours** — bouton **⏹ Stop** en bas à droite de `#quiz-active`, à l'écart
+> de Check / Skip. Pour une série de 200 qu'il faut interrompre : la session se termine sur les
+> questions **déjà répondues**, avec la même fin qu'une série complète (Error Review, résumé, post
+> au fil, XP). La question affichée sans réponse **ne compte pas** : rien n'est écrit pour elle, le
+> SRS ne bouge pas.
+>
+> - **Second clic pour confirmer** (`⏹ Confirm: see results`), dans les 5 s, sinon le bouton se
+>   réarme. Jamais de `confirm()` : la page tourne en iframe chez Jarvis.
+> - Le résumé le dit : « ⏹ Stopped after 37 of 200 questions — the other 163 weren't counted. »
+>   Sans cette ligne, « 30 / 37 » laisserait croire à une série de 37. Arrêtée après la dernière
+>   réponse, la série est complète et la ligne n'apparaît pas.
+> - Aucune réponse au moment de l'arrêt : retour au setup avec un toast, rien n'est posté au fil.
+> - `stopQuiz()` pose `sessionStopInfo = { answered, planned }` puis appelle `endSession()` ;
+>   `resetSessionStop()` le remet à `null` et désarme le bouton au départ de chaque session
+>   (setup et Challenge Back).
+
 **Vocabulary** : formulaire d'ajout rapide, import/export Excel, actions bulk, table triable **au clic sur n'importe quel en-tête**, filtres.
 
 > **Tri au clic** (`sortCol` / `sortDir`, `SORT_ACCESSORS`, `sortVocabList()`) — comme dans Excel :
@@ -432,6 +448,7 @@ let vocabDirty = false      // mot corrigé/flaggé en review → recharger plus
 | `showQuestion()` | Rendu de la question courante. |
 | `checkAnswer()` | Validation, enregistrement, mise à jour SM-2. |
 | `advanceQuiz()` | Question suivante ou fin de session. |
+| `stopQuiz()` / `resetSessionStop()` | Arrêt de la série en cours sur les questions déjà répondues, remise à zéro au départ de chaque session (§7). |
 | `endSession()` | Stats, post au fil, review/résumé. |
 | `buildQuizQueue()` | Filtre + shuffle du vocabulaire. |
 | `recordAnswer(wordId, isCorrect)` | Upsert `quiz_progress` (logique SM-2). |
