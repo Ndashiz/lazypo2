@@ -37,7 +37,7 @@ Le Knowledge Quiz est un entraîneur bilingue avec **5 onglets** dans `quiz.html
 
 Les **verbes irréguliers NL** ne sont plus un onglet : ils sont devenus le chapitre 23 du module Grammaire (`isVerbesModule` → `grShowVerbesEmbed()`), qui réutilise l'entraîneur de conjugaison existant.
 
-Caractéristiques clés : répétition espacée à étapes (réception puis production), tableau de bord de pilotage (KPI), atelier sangsues, fil multijoueur avec Challenge Back, gamification XP + streak, classement all-time, import/export Excel, partage de vocabulaire entre utilisateurs, cours de grammaire noté.
+Caractéristiques clés : répétition espacée à étapes (réception puis production), tableau de bord de pilotage (KPI), fil multijoueur avec Challenge Back, gamification XP + streak, classement all-time, import/export Excel, partage de vocabulaire entre utilisateurs, cours de grammaire noté.
 
 ---
 
@@ -53,18 +53,18 @@ Caractéristiques clés : répétition espacée à étapes (réception puis prod
 - `extra_info` (optionnel, migration `vocab_extra_info.sql`) — infos complémentaires (temps du verbe, pluriel…) montrées **seulement à la correction** : feedback après réponse, Error Review, liste des mots ratés du résumé. Jamais pendant la question, ni au recto des fiches imprimées.
 - `is_system` (bool) — marque le vocabulaire fourni par le système
 - `flagged_at`, `flag_reason`, `flag_note` — flag d'un mot = **« Étudier plus tard »**, la seule catégorie du Flagger (Error Review, liste de vocabulaire ou pendant le test, voir §7bis). `flagged_at` non nul = le mot est dans la liste. `flag_reason` vaut toujours `to_study` : contrainte CHECK `vocabulary_flag_reason_single`, posée par `vocab_flag_single.sql`, qui a remappé les anciens motifs (`wrong_translation`, `typo`, `bad_example`, `other`) et les a sauvegardés dans `vocabulary_flag_backup`. `flag_note` n'est plus saisie : une note héritée reste lisible au survol du badge 🚩 et part au retrait du flag. Colonnes portées par la ligne elle-même : **un seul flag actif par mot, pas d'historique**.
-- `suspended_at` (migration `quiz_srs_v2.sql`) — mot suspendu depuis l'atelier sangsues : exclu de toutes les séries tant qu'il n'est pas réactivé (badge ⏸ dans la liste).
-- RLS `own_vocabulary` — couvre déjà les colonnes de flag et de suspension, pas de policy supplémentaire
+- `suspended_at` (migration `quiz_srs_v2.sql`) — **plus lue** : elle servait à l'atelier sangsues, retiré en octobre 2026. Un mot suspendu à l'époque est revenu dans les séries.
+- RLS `own_vocabulary` — couvre déjà ces colonnes, pas de policy supplémentaire
 
 **`quiz_progress`** — état de chaque mot dans le moteur (§5)
 - `word_id`, `correct`, `attempts`, `last_tested`
 - `ease_factor` (défaut 2.5, entre 1.3 et 2.5), `interval_days` (défaut 1)
 - `recent` (jsonb, 10 dernières réponses 1/0 — fenêtre glissante de maîtrise, migrations `quiz_progress_recent.sql` ou `quiz_srs_v2.sql`)
-- `stage` (`learn` | `recv` | `prod` ; null + `attempts = 0` = nouveau), `lapses` (oublis depuis le dernier atelier), `first_tested` (première question posée) — migration `quiz_srs_v2.sql`, qui initialise aussi les mots déjà travaillés (`stage = 'recv'`, `lapses = attempts − correct`) et ramène à 30 jours les intervalles gonflés par l'ancien moteur
+- `stage` (`learn` | `recv` | `prod` ; null + `attempts = 0` = nouveau), `lapses` (oublis cumulés), `first_tested` (première question posée) — migration `quiz_srs_v2.sql`, qui initialise aussi les mots déjà travaillés (`stage = 'recv'`, `lapses = attempts − correct`) et ramène à 30 jours les intervalles gonflés par l'ancien moteur
 - unique `(user_id, word_id)`, RLS `own_progress`
 
 **`quiz_answers`** — journal des réponses (migration `quiz_srs_v2.sql`)
-- Une ligne par réponse, re-questions et rappels d'atelier compris : `word_id`, `session_key`, `mode` (`daily` | `free` | `challenge` | `atelier`), `answered_at`, `direction`, `stage` (avant la réponse), `grade` (1 raté · 2 difficile · 3 bien · 4 facile ; null pour une re-question), `correct`, `close_match`, `first_key_ms`, `total_ms`, `is_new`, `is_relearn`, `is_leech`, `was_due`, `elapsed_days`, `interval_before`, `interval_after`
+- Une ligne par réponse, re-questions comprises : `word_id`, `session_key`, `mode` (`daily` | `free` | `challenge` ; `atelier` sur les lignes d'avant son retrait), `answered_at`, `direction`, `stage` (avant la réponse), `grade` (1 raté · 2 difficile · 3 bien · 4 facile ; null pour une re-question), `correct`, `close_match`, `first_key_ms`, `total_ms`, `is_new`, `is_relearn`, `is_leech`, `was_due`, `elapsed_days`, `interval_before`, `interval_after`
 - Source des KPI et du régulateur (§5). RLS `own_answers`, index `(user_id, answered_at desc)`
 
 **`quiz_settings`** — réglages du moteur (migration `quiz_srs_v2.sql`)
@@ -104,7 +104,7 @@ Caractéristiques clés : répétition espacée à étapes (réception puis prod
 
 | Clé | Contenu |
 |-----|---------|
-| `lazypo_quiz_log` | Array `{date, words, correct, durationSec, kind}` — calcul de streak local (fallback 28 j si `xp_daily_log` indispo) ; la dernière séance hors atelier ajuste la suivante (§5). |
+| `lazypo_quiz_log` | Array `{date, words, correct, durationSec, kind}` — calcul de streak local (fallback 28 j si `xp_daily_log` indispo) ; la dernière séance ajuste la suivante (§5). |
 | `lazypo_verbs_progress` | Progression verbes NL `{verbId: {correct, attempts, …}}`. |
 | `lazypo_new_intro` | `{date (locale), count}` — nouveaux mots introduits aujourd'hui sur cet appareil. Repli seulement : la base (`first_tested`, `quiz_answers`) compte tous les appareils. |
 | `lazypo_srs_settings` | Copie locale de `quiz_settings` — repli si la table n'existe pas. |
@@ -118,7 +118,7 @@ Caractéristiques clés : répétition espacée à étapes (réception puis prod
 1. **Vocabulaire système** (`is_system: true`) — 1000+ mots néerlandais (`dutch_vocabulary.sql`), catégories : nombres, jours, mois, saisons, couleurs, corps, famille, nourriture, animaux, nature, maison, vêtements, transport, école/travail, santé, sports, technologie. Lisible par tous via RLS.
 2. **Vocabulaire utilisateur** (`is_system: false`) — ajout manuel EN/NL → FR, détection de doublon sur `(source_word, language_pair)`.
 3. **Séance du jour** (`srsComposeDaily()`, §5) — composée par le moteur : révisions par risque d'oubli, part réservée aux nouveaux mots, sangsues plafonnées, direction selon l'étape du mot.
-4. **Entraînement libre** (`buildQuizQueue()`) — les réglages à la main : paire de langue, système/user, « Needs practice », « Étudier plus tard », plage de numéros, direction forcée ou auto (= étape du mot), phrases à trous. Ordre des groupes : (flaggés si « En premier ») → dus (risque d'oubli ; les plus fragiles d'abord avec « Needs practice ») → nouveaux (tes ajouts récents d'abord, 15 par jour au plus) → vus non dus. Les mots suspendus n'y sortent jamais.
+4. **Entraînement libre** (`buildQuizQueue()`) — les réglages à la main : paire de langue, système/user, « Needs practice », « Étudier plus tard », plage de numéros, direction forcée ou auto (= étape du mot), phrases à trous. Ordre des groupes : (flaggés si « En premier ») → dus (risque d'oubli ; les plus fragiles d'abord avec « Needs practice ») → nouveaux (tes ajouts récents d'abord, 15 par jour au plus) → vus non dus.
 
 > **Pas d'intégration IA/LLM.** Les questions viennent du vocabulaire pré-chargé (SQL) et des traductions saisies par l'utilisateur. Aucune génération ni correction par LLM.
 
@@ -162,11 +162,15 @@ réellement écoulé, jamais moins que l'intervalle actuel — un mot à 8 jours
 **Re-questions** (`queueRelearn()`) : un mot raté ou passé revient 3 à 5 questions plus loin, un mot
 découvert 2 à 3 plus loin, jusqu'à une réussite (3 fois au plus par séance). Hors score, sans effet
 sur l'espacement — seule la note du premier essai compte — mais journalisées (`is_relearn`). Pas de
-re-question en Challenge Back (un défi reste un test) ni à l'atelier.
+re-question en Challenge Back : un défi reste un test.
 
 **Sangsue** (`srsIsLeech()`) : 4 oublis ou plus (`lapses`) et moins de 50 % de réussite (fenêtre
-`recent` si dispo). Plafonnées à 10 % de chaque séance du jour (5 % quand elles dépassent 15 % de
-l'effort), et soignées à l'atelier (§7).
+`recent` si dispo) — un mot redevenu solide en sort de lui-même par la fenêtre glissante.
+Plafonnées à 10 % de chaque séance du jour (5 % quand elles dépassent 15 % de l'effort).
+
+> Un **atelier sangsues** (fiche + phrase à écrire + trois rappels + suspension) a existé quelques
+> heures en octobre 2026, puis a été retiré à la demande de Simon. Les sangsues restent
+> simplement mêlées aux séances, plafonnées.
 
 **Séance du jour** (`srsComposeDaily()`) : budget de nouveaux mots **réservé** (N par jour moins ceux
 déjà découverts aujourd'hui, tous appareils), à raison d'un toutes les 3 à 4 questions — au lieu des
@@ -199,7 +203,7 @@ cible et un statut (dans la cible / à surveiller / hors cible / pas encore mesu
 sur la semaine précédente), retard en jours de travail, part de l'effort sur les sangsues, nouveaux
 mots retrouvés au rappel, tes mots en attente de 1re question (âge médian), écart réception /
 production, temps avant la 1re frappe. Plus le parcours : nouveaux · apprentissage · réception ·
-production · acquis · suspendus.
+production · acquis.
 
 **Sans la migration** `quiz_srs_v2.sql`, tout fonctionne en mode dégradé : l'état v2 vit en mémoire
 pendant la séance (`progressV2Missing`), le compteur de nouveaux mots retombe sur le localStorage, le
@@ -283,10 +287,10 @@ Implémentation : `launchChallengeQuiz(wordSnapshots, wordIdsFallback, originalM
 
 **Setup quiz** : deux onglets en tête (`#daily-panel` / `#free-panel`, choix mémorisé dans `lazypo_quiz_setup_mode`).
 
-- **📅 Séance du jour** (défaut) : seule la longueur se choisit (10 / 20 / 50). Le panneau annonce ce que la séance va servir (« 20 questions — 5 nouveaux mots, 13 révisions, 2 sangsues »), les révisions dues, le budget du jour et la raison du dernier ajustement du régulateur (`renderDailyPanel()`, appelé par `updateAvailNote()`). Bouton **🩹 Atelier sangsues** quand il y en a.
+- **📅 Séance du jour** (défaut) : seule la longueur se choisit (10 / 20 / 50 / 100). Quand il n'y a pas assez de révisions dues, la séance est plus courte et le panneau le dit — elle ne se complète jamais avec des mots pas encore dus ; le volume en plus se fait en Entraînement libre. Le panneau annonce ce que la séance va servir (« 20 questions — 5 nouveaux mots, 13 révisions, 2 sangsues »), les révisions dues, le budget du jour et la raison du dernier ajustement du régulateur (`renderDailyPanel()`, appelé par `updateAvailNote()`).
 - **🎛️ Entraînement libre** : les réglages ci-dessous.
 
-Entraînement libre : paire de langue → direction → filtres (système, ratés/fragiles) → **plage de mots** → nombre de questions (5/10/20/50/200/All) → Start. La note sous les boutons annonce la taille réelle de la série quand le plafond de nouveaux mots du jour la raccourcit (« cette session : N questions ») ; Start est désactivé si elle tombe à 0.
+Entraînement libre : paire de langue → direction → filtres (système, ratés/fragiles) → **plage de mots** → nombre de questions (5/10/20/50/100/200/All) → Start. La note sous les boutons annonce la taille réelle de la série quand le plafond de nouveaux mots du jour la raccourcit (« cette session : N questions ») ; Start est désactivé si elle tombe à 0.
 
 > **Plage de mots** — deux champs `du n° … au n° …` qui restreignent la session à un intervalle de
 > numéros permanents (« je révise du mot 1 au 250 »). Les deux bornes sont facultatives : vide =
@@ -314,15 +318,7 @@ Entraînement libre : paire de langue → direction → filtres (système, raté
 > le temps passé masqué est rendu à l'échéance. Sans ça, l'échéance en temps réel ferait expirer la
 > question dès le retour sur l'onglet : regarder ailleurs coûterait la question.
 
-**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, re-questions) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge et atelier ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
-
-> **Atelier sangsues** (`#quiz-atelier`, `openAtelier()`) — 8 sangsues au plus par passage, dues
-> d'abord. Pour chacune : la fiche, et un champ pour écrire une phrase à soi ou un moyen
-> mnémotechnique, enregistré dans `tips` (l'indice affiché pendant la question) ; ou **Passer**, ou
-> **⏸ Suspendre** (`suspended_at`). Puis trois tours de rappels entrelacés (A B C, A B C, A B C),
-> journalisés en `mode = 'atelier'` sans toucher à l'espacement. Réussi au **dernier** rappel, le mot
-> est « sauvé » (`srsRescue()` : oublis à 0, facilité ≥ 2,3, retour demain) ; sinon il reste une
-> sangsue. Les mots suspendus se réactivent depuis la même page.
+**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, re-questions) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
 
 > **Arrêter une série en cours** — bouton **⏹ Stop** en bas à droite de `#quiz-active`, à l'écart
 > de Check / Skip. Pour une série de 200 qu'il faut interrompre : la session se termine sur les
@@ -568,15 +564,14 @@ let vocabDirty = false      // mot corrigé/flaggé en review → recharger plus
 | `endSession()` | Stats, post au fil, review/résumé. |
 | `buildQuizQueue()` | Entraînement libre : filtres, groupes, directions (§4). |
 | `srsComposeDaily()` / `srsNewWordOrder()` | Séance du jour : composition et ordre des nouveaux mots — fonctions pures (§5). |
-| `srsNext()` / `srsGrade()` / `srsDirection()` / `srsIsLeech()` / `srsRescue()` | Moteur : état suivant d'un mot, note automatique, direction selon l'étape, sangsue, sauvetage — fonctions pures (§5). |
+| `srsNext()` / `srsGrade()` / `srsDirection()` / `srsIsLeech()` | Moteur : état suivant d'un mot, note automatique, direction selon l'étape, sangsue — fonctions pures (§5). |
 | `srsKpis()` / `srsRegulate()` | Indicateurs de pilotage et régulateur du budget de nouveaux mots — fonctions pures (§5). |
-| `beginSession(kind, queue)` / `startDailySession()` | Démarrage d'une séance (`daily` / `free` / `challenge` / `atelier`). |
+| `beginSession(kind, queue)` / `startDailySession()` | Démarrage d'une séance (`daily` / `free` / `challenge`). |
 | `finishItem(item, r)` / `queueRelearn()` / `revealUnanswered()` | Fin d'une question (correction, note, enregistrement), re-questions, « Skip » et chrono écoulé. |
 | `recordAnswer(word, grade, ctx)` | Premier essai d'un mot : état `srsNext()` dans `quiz_progress` + ligne de journal ; retire les colonnes que la base n'a pas. |
 | `logAnswer(row)` / `loadAnswerLog()` | Journal `quiz_answers` (28 derniers jours en mémoire). |
 | `loadSrsSettings()` / `runSrsRegulator()` | Réglages `quiz_settings` et passage quotidien du régulateur. |
 | `renderDailyPanel()` / `renderKpiPanel()` | Panneau de la séance du jour ; tableau de bord de l'onglet Progress. |
-| `openAtelier()` / `finishAtelier()` / `rescueLeech()` | Atelier sangsues (§7). |
 | `saveWordPatch(id, patch)` | Écriture ciblée d'un patch sur un mot — mute l'objet en place, marque `vocabDirty`, **ne recharge pas** le vocabulaire. Partagée par la review et le flag depuis la liste (§7bis). |
 | `flushVocabDirty()` | Repagination différée, une seule fois, hors review. |
 | `flagPatch(on)` / `toggleFlag(id)` | Patch « Étudier plus tard » (ajout ou retrait) ; bascule en un clic depuis la liste de vocabulaire (§7bis). |
@@ -731,8 +726,8 @@ Commits notables (récent → ancien) :
 
 **Moteur d'apprentissage v2 (octobre 2026)**
 
-- Séance du jour composée par le moteur, parcours réception → production, notation à 4 niveaux, re-questions, « Skip » qui montre la réponse, « Précédent » en lecture seule, atelier sangsues, journal `quiz_answers`, régulateur, tableau de bord KPI, XP réalignée, drapeaux de langue — `quiz_srs_v2.sql`
-- Arrêter une série en cours (⏹ Stop) ; Flagger réduit à « Étudier plus tard » (`vocab_flag_single.sql`)
+- Séance du jour composée par le moteur, parcours réception → production, notation à 4 niveaux, re-questions, « Skip » qui montre la réponse, « Précédent » en lecture seule, journal `quiz_answers`, régulateur, tableau de bord KPI, XP réalignée, drapeaux de langue — `quiz_srs_v2.sql`
+- Arrêter une série en cours (⏹ Stop) ; Flagger réduit à « Étudier plus tard » (`vocab_flag_single.sql`) ; séries de 100 ; atelier sangsues retiré
 
 **Embed Jarvis (juillet 2026)**
 

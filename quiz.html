@@ -132,8 +132,9 @@ create policy "own_vocabulary" on public.vocabulary
 -- alter table public.vocabulary add column if not exists extra_info text;   (vocab_extra_info.sql)
 -- Flag d'un mot (Error Review, liste, ou pendant le test) = « Étudier plus tard », seule catégorie :
 -- flag_reason vaut toujours 'to_study' (contrainte CHECK + remap des anciens motifs : vocab_flag_single.sql)
--- Moteur v2 (quiz_srs_v2.sql) : quiz_progress.stage / lapses / first_tested / recent, vocabulary.suspended_at,
--- tables quiz_answers (journal des réponses) et quiz_settings (budget de nouveaux mots du régulateur)
+-- Moteur v2 (quiz_srs_v2.sql) : quiz_progress.stage / lapses / first_tested / recent,
+-- tables quiz_answers (journal des réponses) et quiz_settings (budget de nouveaux mots du régulateur).
+-- vocabulary.suspended_at existe encore en base mais n'est plus lu (atelier sangsues retiré).
 -- alter table public.vocabulary add column if not exists flagged_at  timestamptz;
 -- alter table public.vocabulary add column if not exists flag_reason text;
 -- alter table public.vocabulary add column if not exists flag_note   text;
@@ -1207,28 +1208,6 @@ body { padding-left: 64px; }
 .daily-summary .dp-line b { color: var(--accent2); }
 .daily-summary .dp-meta { font-size: 12.5px; color: var(--muted); }
 .daily-summary .dp-reason { font-size: 12.5px; color: var(--text); opacity: .85; }
-#btn-open-atelier { margin: 4px 0 18px; }
-
-/* Atelier sangsues */
-.atl-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
-.atl-title { font-size: 18px; font-weight: 700; }
-.atl-intro { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
-.atl-count { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 4px; }
-.atl-label { display: block; margin: 14px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
-.atl-tip { width: 100%; min-height: 72px; padding: 10px 12px; resize: vertical; background: var(--surface);
-  border: 1px solid var(--border2); border-radius: var(--r); color: var(--text); font-family: 'DM Sans', sans-serif;
-  font-size: 14px; outline: none; }
-.atl-tip:focus { border-color: var(--accent); }
-.atl-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.atl-actions .danger { margin-left: auto; }
-.atl-ready { display: grid; gap: 12px; font-size: 14px; line-height: 1.5; }
-.atl-sub { margin: 24px 0 8px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--muted); font-family: 'DM Mono', monospace; }
-.atl-susp-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0;
-  border-top: 1px solid var(--border); font-size: 13px; }
-.atl-empty { font-size: 13px; color: var(--muted); }
-.susp-badge { margin-left: 6px; font-size: 12px; cursor: help; }
-
 /* Onglet Progress : pilotage de l'apprentissage */
 .kpi-section { margin-bottom: 28px; }
 .kpi-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -2560,11 +2539,11 @@ tr.row-selected { background: rgba(59,130,246,.05); }
               <button class="qz-count-btn" data-size="10">10</button>
               <button class="qz-count-btn active" data-size="20">20</button>
               <button class="qz-count-btn" data-size="50">50</button>
+              <button class="qz-count-btn" data-size="100">100</button>
             </div>
           </div>
           <div class="daily-summary" id="daily-summary"></div>
           <p class="qz-avail-note">Le moteur compose la série : les révisions les plus à risque d'oubli, une part réservée aux nouveaux mots (tes ajouts récents d'abord), deux sangsues au plus sur 20. Un mot raté ou nouveau revient quelques questions plus loin.</p>
-          <button class="btn-ghost" id="btn-open-atelier" type="button" style="display:none;">🩹 Atelier sangsues</button>
         </div>
 
         <div id="free-panel" style="display:none;">
@@ -2646,6 +2625,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <button class="qz-count-btn active" data-count="10">10</button>
             <button class="qz-count-btn" data-count="20">20</button>
             <button class="qz-count-btn" data-count="50">50</button>
+            <button class="qz-count-btn" data-count="100">100</button>
             <button class="qz-count-btn" data-count="200">200</button>
             <button class="qz-count-btn" data-count="all">All</button>
           </div>
@@ -2787,19 +2767,6 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           <button class="btn-primary"   id="review-btn-next">Next →</button>
         </div>
       </div>
-    </div>
-
-    <!-- Atelier sangsues : relire la fiche, écrire une phrase ou un moyen mnémotechnique,
-         puis 3 rappels espacés par mot. Les mots suspendus se réactivent ici. -->
-    <div id="quiz-atelier" class="qz-card" style="display:none;">
-      <div class="atl-head">
-        <span class="atl-title">🩹 Atelier sangsues</span>
-        <button class="btn-ghost" id="atl-close" type="button">← Retour</button>
-      </div>
-      <p class="atl-intro">Ces mots résistent : les reposer en boucle ne suffit pas. Relis la fiche, écris une phrase à toi ou un moyen mnémotechnique — il deviendra l'indice affiché pendant la question —, puis chaque mot revient trois fois. Réussi au dernier rappel, il repart dans la rotation normale.</p>
-      <div id="atl-card"></div>
-      <div class="atl-sub">⏸ Mots suspendus</div>
-      <div id="atl-suspended-list"></div>
     </div>
 
     <!-- Session summary (hidden by default) -->
@@ -3690,8 +3657,6 @@ async function saveWordPatch(id, patch) {
     // Colonnes de flag pas encore migrées : message lisible, pas une exception
     const msg = /flag(ged_at|_reason|_note)/i.test(error.message || '')
       ? 'Flag indisponible — la migration SQL n\'est pas encore passée'
-      : /suspended_at/i.test(error.message || '')
-      ? 'Suspension indisponible — quiz_srs_v2.sql n\'est pas encore passé'
       : 'Erreur : ' + (error.message || 'update failed');
     showToast(msg);
     return false;
@@ -4125,16 +4090,6 @@ function srsNext(p, grade, now) {
   };
 }
 
-/* Sangsue réussie à l'atelier : oublis remis à zéro, facilité relevée, retour demain */
-function srsRescue(p, now) {
-  return {
-    lapses: 0,
-    ease_factor: Math.max(2.3, (p && p.ease_factor) || SRS2.START_EASE),
-    interval_days: 1,
-    last_tested: new Date(now).toISOString(),
-  };
-}
-
 /* Direction d'une question selon l'étape : réception avant production, puis la
    phrase à trou pour les mots acquis qui ont un exemple. */
 function srsDirection(word, p, rnd = Math.random) {
@@ -4173,7 +4128,6 @@ function srsNewWordOrder(fresh) {
 function srsComposeDaily({ words, progress, now, size, budgetLeft, leechPct = 0.10, bias = null, rnd = Math.random }) {
   const due = [], leech = [], fresh = [];
   for (const w of words) {
-    if (w.suspended_at) continue;
     const p = progress[w.id];
     if (!p || !p.attempts) { fresh.push(w); continue; }
     if (!srsIsDue(p, now)) continue;
@@ -4228,12 +4182,12 @@ function srsKpis({ log, progress, words, now }) {
   const d7 = now - 7 * DAY_MS, d14 = now - 14 * DAY_MS;
   const at = r => new Date(r.answered_at).getTime();
   const share = (rows, f) => rows.length ? rows.filter(f).length / rows.length : null;
-  const firsts = log.filter(r => !r.is_relearn && r.mode !== 'atelier');
+  const firsts = log.filter(r => !r.is_relearn && r.mode !== 'atelier');   // 'atelier' : lignes d'avant son retrait
   const in7    = firsts.filter(r => at(r) >= d7);
   const prev7  = firsts.filter(r => at(r) >= d14 && at(r) < d7);
   const dueOf  = rows => rows.filter(r => r.was_due && !r.is_new);
 
-  const live = words.filter(w => !w.suspended_at);
+  const live = words;
   const dueCount = live.filter(w => srsIsDue(progress[w.id], now)).length;
   const perDay = in7.length / 7;
   const leechWords = live.filter(w => srsIsLeech(progress[w.id]));
@@ -4252,9 +4206,8 @@ function srsKpis({ log, progress, words, now }) {
   const recvRate = share(in7.filter(r => r.direction === 'forward'), r => r.correct);
   const prodRate = share(in7.filter(r => r.direction !== 'forward'), r => r.correct);
 
-  const stages = { new: 0, learn: 0, recv: 0, prod: 0, acquired: 0, suspended: 0 };
+  const stages = { new: 0, learn: 0, recv: 0, prod: 0, acquired: 0 };
   words.forEach(w => {
-    if (w.suspended_at) { stages.suspended++; return; }
     const p = progress[w.id];
     const st = srsStage(p);
     if (st === 'prod' && srsIsAcquired(p)) stages.acquired++;
@@ -4379,7 +4332,7 @@ let progressV2Missing = false; // colonnes stage / lapses / first_tested absente
 const pendingProgressWrites = new Set();   // écritures quiz_progress en vol — attendues avant tout rechargement
 
 /* ── Séance en cours ── */
-let sessionKind = 'free';      // 'daily' | 'free' | 'challenge' | 'atelier'
+let sessionKind = 'free';      // 'daily' | 'free' | 'challenge'
 let sessionKey  = null;        // identifiant de la séance, repris dans le journal
 
 /* ── Journal des réponses (quiz_answers) ──
@@ -5021,11 +4974,9 @@ function renderVocabRow(word) {
   const info    = word.extra_info
     ? `<span title="${escHtml(word.extra_info)}">${escHtml(word.extra_info.length > 28 ? word.extra_info.slice(0,28)+'…' : word.extra_info)}</span>`
     : '<span style="opacity:.3">—</span>';
-  const flag = (word.flagged_at
+  const flag = word.flagged_at
     ? ` <span class="flag-badge" title="${escHtml(flagTitle(word))}">🚩</span>`
-    : '') + (word.suspended_at
-    ? ` <span class="susp-badge" title="Suspendu — ne sort plus dans les séries. Réactivable depuis l'atelier sangsues.">⏸</span>`
-    : '');
+    : '';
   return `<tr data-id="${word.id}">
     <td class="num-col">${vocabNum[word.id] || '—'}</td>
     <td class="source-word">${escHtml(word.source_word)}${flag}</td>
@@ -5318,18 +5269,18 @@ function renderDailyPanel() {
   const line = plan.items.length
     ? `Cette séance : <b>${plan.items.length}</b> questions — ${pl(st.nNew, 'nouveau mot', 'nouveaux mots')}, ${pl(st.nRev, 'révision', 'révisions')}, ${pl(st.nLeech, 'sangsue', 'sangsues')}`
     : `Rien à poser pour le moment : aucune révision due, et le budget de nouveaux mots du jour est atteint.`;
+  // Plus courte que demandé : le dire, et dire où trouver du volume. La séance du
+  // jour ne complète jamais avec des mots pas encore dus (aucun gain d'espacement).
+  const short = plan.items.length && plan.items.length < dailySize
+    ? `<div class="dp-meta">Moins que les ${dailySize} demandées : il n'y a pas plus de révisions dues aujourd'hui. Pour du volume en plus, passe en Entraînement libre.</div>`
+    : '';
   const meta = `${st.due + st.leeches} révision${st.due + st.leeches > 1 ? 's' : ''} due${st.due + st.leeches > 1 ? 's' : ''}`
     + ` · budget du jour : ${n} nouveaux mots, ${intro} déjà découvert${intro > 1 ? 's' : ''}`
     + ` · ${st.fresh} mot${st.fresh > 1 ? 's' : ''} jamais posé${st.fresh > 1 ? 's' : ''}`;
   const reason = srsSettings.last_reason
     || `Budget de départ : ${n} nouveaux mots par jour. Il s'ajustera tout seul quand le journal des réponses en saura assez.`;
-  el.innerHTML = `<div class="dp-line">${line}</div><div class="dp-meta">${meta}</div><div class="dp-reason">${escHtml(reason)}</div>`;
+  el.innerHTML = `<div class="dp-line">${line}</div>${short}<div class="dp-meta">${meta}</div><div class="dp-reason">${escHtml(reason)}</div>`;
 
-  const leeches   = vocab.filter(w => !w.suspended_at && srsIsLeech(progress[w.id])).length;
-  const suspended = vocab.filter(w => w.suspended_at).length;
-  const atl = document.getElementById('btn-open-atelier');
-  atl.style.display = leeches || suspended ? 'inline-flex' : 'none';
-  atl.textContent = leeches ? `🩹 Atelier sangsues (${leeches})` : `⏸ Mots suspendus (${suspended})`;
 
   const startBtn = document.getElementById('btn-start-quiz');
   if (startBtn) startBtn.disabled = plan.items.length === 0;
@@ -5427,8 +5378,7 @@ function updateAvailNote() {
 }
 
 function filterVocabForQuiz(filter) {
-  // Un mot suspendu (atelier sangsues) ne sort dans aucune série
-  let list = vocab.filter(w => !w.suspended_at);
+  let list = [...vocab];
 
   // Language filter
   if (filter === 'EN→FR')   list = list.filter(w => w.language_pair === 'EN→FR');
@@ -5616,7 +5566,7 @@ function beginSession(kind, queue) {
   sessionStartTime = Date.now();
   quizQueue = queue;
   quizIndex = 0;
-  ['quiz-setup', 'quiz-summary', 'quiz-review', 'quiz-atelier'].forEach(id => {
+  ['quiz-setup', 'quiz-summary', 'quiz-review'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -5628,7 +5578,7 @@ function beginSession(kind, queue) {
 
 /* Dernière série nettement ratée ou trop facile : la suivante s'ajuste */
 function lastSessionBias() {
-  const log = getQuizLog().filter(e => e.kind !== 'atelier');   // un atelier est difficile par nature
+  const log = getQuizLog();
   const last = log[log.length - 1];
   if (!last || !last.words || last.words < 5) return null;
   const pct = last.correct / last.words;
@@ -5684,8 +5634,7 @@ function showQuestion() {
   const modeLabel  = document.getElementById('quiz-mode-label');
 
   modeLabel.textContent =
-      item.atelier   ? `🩹 Atelier — rappel ${item.atelierRound} sur 3`
-    : item.relearn   ? '↻ Re-question — pour ancrer le mot, hors score'
+      item.relearn   ? '↻ Re-question — pour ancrer le mot, hors score'
     : item.isNewWord ? '🆕 Nouveau mot — tente ta chance, la fiche suit'
     : dir === 'cloze' ? '🧩 Phrase à trou — complète le mot manquant'
     : sessionKind === 'daily' ? (dir === 'forward' ? 'Réception — traduis' : 'Production — retrouve le mot')
@@ -5975,9 +5924,9 @@ function buildFeedback(item, r, grade) {
 
 /* Fin d'une question, quelle que soit l'issue : correction affichée, puis
    enregistrement — le premier essai d'un mot passe par le SRS (recordAnswer),
-   les re-questions et les rappels d'atelier seulement par le journal. */
+   les re-questions seulement par le journal. */
 function finishItem(item, r) {
-  const scheduled = !item.relearn && !item.atelier;
+  const scheduled = !item.relearn;
   const grade = scheduled
     ? srsGrade({ correct: r.correct, closeReason: r.closeReason, articleIssue: !!r.articleIssue, latencyMs: r.latency })
     : null;
@@ -6012,7 +5961,6 @@ function finishItem(item, r) {
         is_new: !!item.isNewWord, is_relearn: true, is_leech: srsIsLeech(p),
       });
     }
-    if (item.atelier) sessionAnswers.push(answerEntry);   // les rappels d'atelier font le score de l'atelier
   }
   queueRelearn(item, r, grade);
 }
@@ -6021,7 +5969,7 @@ function finishItem(item, r) {
    découvert 2 à 3 plus loin, jusqu'à une réussite — trois fois au plus. Hors
    score et sans effet sur l'espacement : seule la note du premier essai compte. */
 function queueRelearn(item, r, grade) {
-  if (sessionKind === 'challenge' || sessionKind === 'atelier' || !item.word) return;
+  if (sessionKind === 'challenge' || !item.word) return;
   const firstTry = !item.relearn;
   const needed = firstTry
     ? (grade === GRADE.AGAIN || (item.isNewWord && grade !== GRADE.EASY))
@@ -6324,13 +6272,9 @@ function endSession() {
   const correct = sessionAnswers.filter(a => a.correct).length;
   const sessionWordIds = sessionAnswers.map(a => a.word.id);
   saveQuizSession(total, correct, durationSec, sessionKind);
-  if (sessionKind === 'atelier') {
-    finishAtelier();   // un atelier n'est pas posté au fil
-  } else {
-    postMultiSession(correct, total, durationSec, 'vocab',
-      sessionKind === 'daily' ? 'daily' : (quizFilter || 'all'),
-      sessionKind === 'daily' ? 'auto'  : (quizMode || 'auto'), sessionWordIds);
-  }
+  postMultiSession(correct, total, durationSec, 'vocab',
+    sessionKind === 'daily' ? 'daily' : (quizFilter || 'all'),
+    sessionKind === 'daily' ? 'auto'  : (quizMode || 'auto'), sessionWordIds);
 
   // Review : les erreurs — « Skip » et chrono écoulé compris —, plus les mots
   // flaggés pendant le test (même répondus juste), dans l'ordre de la session.
@@ -6613,157 +6557,6 @@ document.getElementById('review-btn-prev').addEventListener('click', () => {
   if (reviewIndex > 0) { reviewIndex--; showReviewItem(); }
 });
 
-/* ═══════════════════════════════════════════════════════════
-   ATELIER SANGSUES
-   Un mot qui cumule 4 oublis pour moins de 50 % de réussite ne s'apprend pas en
-   le reposant : on change d'encodage. Relire la fiche, écrire une phrase à soi
-   ou un moyen mnémotechnique (enregistré comme indice), puis trois rappels
-   espacés. Réussi au dernier rappel, le mot est « sauvé » : oublis remis à zéro,
-   retour demain dans la rotation normale. Ou bien on le suspend.
-═══════════════════════════════════════════════════════════ */
-const ATELIER_BATCH = 8;
-let atelierBatch  = [];
-let atelierIdx    = 0;
-let atelierDone   = [];
-let atelierResult = null;   // { saved, tried } de la dernière séance d'atelier
-
-function leechList() {
-  const now = Date.now();
-  return vocab
-    .filter(w => !w.suspended_at && srsIsLeech(progress[w.id]))
-    .sort((a, b) => (srsIsDue(progress[b.id], now) - srsIsDue(progress[a.id], now))
-      || (srsLapses(progress[b.id]) - srsLapses(progress[a.id])));
-}
-
-function openAtelier() {
-  atelierBatch = leechList().slice(0, ATELIER_BATCH);
-  atelierIdx   = 0;
-  atelierDone  = [];
-  document.getElementById('quiz-setup').style.display   = 'none';
-  document.getElementById('quiz-atelier').style.display = 'block';
-  renderAtelier();
-}
-
-function closeAtelier() {
-  document.getElementById('quiz-atelier').style.display = 'none';
-  document.getElementById('quiz-setup').style.display   = 'block';
-  updateAvailNote();
-}
-
-function renderAtelier() {
-  const card = document.getElementById('atl-card');
-  renderSuspendedList();
-  if (!atelierBatch.length) {
-    card.innerHTML = '<p class="atl-empty">Aucune sangsue pour l\'instant.</p>';
-    return;
-  }
-  if (atelierIdx >= atelierBatch.length) {
-    const n = atelierDone.length;
-    card.innerHTML = n
-      ? `<div class="atl-ready"><div>${n} mot${n > 1 ? 's' : ''} relu${n > 1 ? 's' : ''}. Chacun revient maintenant trois fois, espacé des autres.</div>
-           <div><button class="btn-primary" id="atl-start" type="button">Lancer les rappels</button></div></div>`
-      : '<p class="atl-empty">Aucun mot à rappeler : tous ont été passés ou suspendus.</p>';
-    document.getElementById('atl-start')?.addEventListener('click', startAtelierRecalls);
-    return;
-  }
-  const w = atelierBatch[atelierIdx];
-  const p = progress[w.id];
-  card.innerHTML = `
-    <div class="atl-count">Mot ${atelierIdx + 1} / ${atelierBatch.length} · ${srsLapses(p)} oublis · ${Math.round(srsRate(p) * 100)} % de réussite</div>
-    ${wordCardHtml(w)}
-    <label class="atl-label" for="atl-tip">Ta phrase ou ton moyen mnémotechnique — il deviendra l'indice affiché pendant la question</label>
-    <textarea id="atl-tip" class="atl-tip" maxlength="300" placeholder="Ex. : de fiets — « la fiesta à vélo »">${escHtml(w.tips || '')}</textarea>
-    <div class="atl-actions">
-      <button class="btn-primary" id="atl-save" type="button">Enregistrer et continuer</button>
-      <button class="btn-secondary" id="atl-skip" type="button">Passer</button>
-      <button class="btn-ghost danger" id="atl-suspend" type="button">⏸ Suspendre ce mot</button>
-    </div>`;
-  document.getElementById('atl-save').addEventListener('click', atelierSave);
-  document.getElementById('atl-skip').addEventListener('click', () => { atelierIdx++; renderAtelier(); });
-  document.getElementById('atl-suspend').addEventListener('click', atelierSuspend);
-  document.getElementById('atl-tip').focus();
-}
-
-async function atelierSave() {
-  const w   = atelierBatch[atelierIdx];
-  const tip = document.getElementById('atl-tip').value.trim().slice(0, 300);
-  if (tip !== (w.tips || '')) {
-    const ok = await saveWordPatch(w.id, { tips: tip || null });   // toast d'erreur géré par saveWordPatch
-    if (!ok) return;
-  }
-  atelierDone.push(w);
-  atelierIdx++;
-  renderAtelier();
-}
-
-async function atelierSuspend() {
-  const w  = atelierBatch[atelierIdx];
-  const ok = await saveWordPatch(w.id, { suspended_at: new Date().toISOString() });
-  if (!ok) return;
-  showToast('Mot suspendu — il ne sortira plus dans les séries. Réactivable ici.');
-  atelierIdx++;
-  renderAtelier();
-}
-
-/* Trois tours successifs : A B C, A B C, A B C — chaque mot espacé des autres */
-function startAtelierRecalls() {
-  const queue = [];
-  for (let round = 1; round <= 3; round++) {
-    atelierDone.forEach(w => queue.push(makeQuizItem(w, srsDirection(w, progress[w.id]), { atelier: true, atelierRound: round })));
-  }
-  atelierResult = null;
-  beginSession('atelier', queue);
-}
-
-/* Fin d'une séance d'atelier : le dernier rappel de chaque mot décide */
-function finishAtelier() {
-  const last = new Map();
-  sessionAnswers.forEach(a => { if (a.word.id) last.set(a.word.id, a); });
-  const saved = [...last.values()].filter(a => a.correct).map(a => a.word);
-  saved.forEach(w => {
-    const write = rescueLeech(w);
-    pendingProgressWrites.add(write);
-    write.finally(() => pendingProgressWrites.delete(write));
-  });
-  atelierResult = { saved: saved.length, tried: last.size };
-}
-
-async function rescueLeech(word) {
-  const p = progress[word.id];
-  if (!p || !currentUser) return;
-  const patch = srsRescue(p, Date.now());
-  progress[word.id] = { ...p, ...patch };
-  const payload = {
-    user_id: currentUser.id, word_id: word.id, correct: p.correct, attempts: p.attempts,
-    ease_factor: patch.ease_factor, interval_days: patch.interval_days, last_tested: patch.last_tested,
-    ...(progressV2Missing ? {} : { lapses: 0 }),
-  };
-  const { error } = await window.sb.from('quiz_progress').upsert(payload, { onConflict: 'user_id,word_id' });
-  if (error && !progressV2Missing && /lapses/i.test(error.message || '')) {
-    progressV2Missing = true;   // sans la colonne, les oublis repartent de attempts − correct au rechargement
-    delete payload.lapses;
-    await window.sb.from('quiz_progress').upsert(payload, { onConflict: 'user_id,word_id' });
-  }
-}
-
-function renderSuspendedList() {
-  const el   = document.getElementById('atl-suspended-list');
-  const list = vocab.filter(w => w.suspended_at);
-  el.innerHTML = list.length
-    ? list.map(w => `<div class="atl-susp-row"><span>${escHtml(w.source_word)} → ${escHtml(w.target_translation)}</span>
-        <button class="btn-ghost" type="button" data-unsuspend="${w.id}">Réactiver</button></div>`).join('')
-    : '<div class="atl-empty">Aucun mot suspendu.</div>';
-  el.querySelectorAll('[data-unsuspend]').forEach(btn => btn.addEventListener('click', async () => {
-    const ok = await saveWordPatch(btn.dataset.unsuspend, { suspended_at: null });
-    if (!ok) return;
-    showToast('Mot réactivé — il revient dans les séries.');
-    renderSuspendedList();
-  }));
-}
-
-document.getElementById('btn-open-atelier').addEventListener('click', openAtelier);
-document.getElementById('atl-close').addEventListener('click', closeAtelier);
-
 function showSummary() {
   document.getElementById('quiz-active').style.display  = 'none';
   document.getElementById('quiz-summary').style.display = 'block';
@@ -6783,15 +6576,12 @@ function showSummary() {
   const stars = pct >= 80 ? '⭐⭐⭐' : pct >= 50 ? '⭐⭐' : '⭐';
   document.getElementById('summary-stars').textContent = stars;
 
-  // Ce que la séance a fait d'autre que noter : mots découverts, re-questions, atelier
+  // Ce que la séance a fait d'autre que noter : mots découverts, re-questions
   const notes = [];
   const nNew  = sessionAnswers.filter(a => a.isNew).length;
   const nRe   = quizQueue.filter(i => i.relearn && i.result).length;
   if (nNew) notes.push(`🆕 ${nNew} new word${nNew > 1 ? 's' : ''} discovered`);
   if (nRe)  notes.push(`↻ ${nRe} re-ask${nRe > 1 ? 's' : ''} to anchor missed or new words`);
-  if (sessionKind === 'atelier' && atelierResult) {
-    notes.push(`🩹 ${atelierResult.saved} of ${atelierResult.tried} leech${atelierResult.tried > 1 ? 'es' : ''} rescued — back in the normal rotation`);
-  }
   document.getElementById('summary-notes').innerHTML = notes.map(escHtml).join('<br>');
 
   // Série arrêtée avant la fin : le dire, sinon « 30 / 37 » laisse croire à une
@@ -6956,7 +6746,7 @@ function renderKpiPanel() {
   document.getElementById('kpi-stages').innerHTML =
     `Parcours : <span><b>${st.new}</b> nouveaux</span> <span><b>${st.learn}</b> en apprentissage</span>`
     + ` <span><b>${st.recv}</b> en réception</span> <span><b>${st.prod}</b> en production</span>`
-    + ` <span><b>${st.acquired}</b> acquis</span> <span><b>${st.suspended}</b> suspendus</span>`;
+    + ` <span><b>${st.acquired}</b> acquis</span>`;
   document.getElementById('kpi-sub').textContent =
     `${k.answers7} réponse${k.answers7 > 1 ? 's' : ''} sur 7 jours · budget : ${N} nouveaux mots par jour`;
   document.getElementById('kpi-note').textContent = answersLogMissing

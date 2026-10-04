@@ -127,9 +127,9 @@ traps:
 1. **Decision logic lives in the `SRS-PURE-BEGIN … SRS-PURE-END` block** — pure functions,
    no DOM, no network, no globals. Keep it that way: it is tested by extracting the block
    and running it under Node.
-2. **Only the first attempt of a word in a session touches `quiz_progress`.** Re-asks and
-   atelier recalls go to the `quiz_answers` journal only (`is_relearn`). Routing them through
-   `recordAnswer()` would double-count and reset intervals.
+2. **Only the first attempt of a word in a session touches `quiz_progress`.** Re-asks go
+   to the `quiz_answers` journal only (`is_relearn`). Routing them through `recordAnswer()`
+   would double-count and reset intervals.
 3. **Never multiply an interval without looking at the elapsed time.** The old
    `iv = round(iv * ef)` on early reviews pushed words to 76 488 days. `srsNext()` handles
    early reviews; don't add a shortcut around it.
