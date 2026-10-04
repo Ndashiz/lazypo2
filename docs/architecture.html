@@ -1072,17 +1072,19 @@ erDiagram
         <tr><td>language_pair</td><td>text</td><td>default 'EN→FR'</td><td><code>EN→FR</code>, <code>NL→FR</code>, <code>nl-fr</code></td></tr>
         <tr><td>example_sentence</td><td>text</td><td></td><td>Phrase d'exemple dans la langue source</td></tr>
         <tr><td>is_system</td><td>boolean</td><td>default false</td><td>Mots importés (protégés) vs mots utilisateur</td></tr>
-        <tr><td>flagged_at</td><td>timestamptz</td><td></td><td>Question signalée depuis l'Error Review — <code>null</code> = pas de flag</td></tr>
-        <tr><td>flag_reason</td><td>text</td><td></td><td><code>wrong_translation</code>, <code>typo</code>, <code>bad_example</code>, <code>other</code></td></tr>
-        <tr><td>flag_note</td><td>text</td><td></td><td>Note libre, tronquée à 200 caractères côté client</td></tr>
+        <tr><td>flagged_at</td><td>timestamptz</td><td></td><td>Mot dans « Étudier plus tard » (flag posé pendant le test, en review ou depuis la liste) — <code>null</code> = pas de flag</td></tr>
+        <tr><td>flag_reason</td><td>text</td><td>check : <code>null</code> ou <code>to_study</code></td><td>Toujours <code>to_study</code> quand le mot est flaggé : « Étudier plus tard » est la seule catégorie (<code>vocab_flag_single.sql</code>)</td></tr>
+        <tr><td>flag_note</td><td>text</td><td></td><td>Plus saisie. Une note héritée reste lisible au survol du badge 🚩 et part au retrait du flag</td></tr>
         <tr><td>created_at</td><td>timestamptz</td><td>default now()</td><td></td></tr>
         <tr><td>updated_at</td><td>timestamptz</td><td>default now()</td><td></td></tr>
       </tbody>
     </table>
     <p>Les trois colonnes de flag sont portées par la ligne de vocabulaire elle-même : <strong>un seul
        flag actif par mot, pas d'historique</strong>. La policy <code>own_vocabulary</code> les couvre déjà —
-       aucune policy supplémentaire. Migration <strong>à lancer à la main</strong> (voir le bloc de schéma
-       commenté en tête de <code>quiz.html</code>).</p>
+       aucune policy supplémentaire. Migrations <strong>à lancer à la main</strong> : le bloc de schéma
+       commenté en tête de <code>quiz.html</code> pour les colonnes, puis <code>vocab_flag_single.sql</code>
+       pour la catégorie unique (remap des anciens motifs, sauvegarde dans <code>vocabulary_flag_backup</code>,
+       table sans policy, et contrainte <code>vocabulary_flag_reason_single</code>).</p>
 
     <h3>quiz_progress</h3>
     <table class="data-table">
@@ -2406,6 +2408,20 @@ graph TB
     </div>
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
+
+    <h3>Octobre 2026 — 🚩 Quiz : le Flagger n'a plus qu'une catégorie, « Étudier plus tard »</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Flagger un mot, c'est l'ajouter à <strong>« Étudier plus tard »</strong>. Les motifs
+          (<code>wrong_translation</code>, <code>typo</code>, <code>bad_example</code>, <code>other</code>) et la
+          note libre disparaissent, avec le panneau de flag de la review et l'éditeur en ligne de la liste.</li>
+      <li>Un clic partout : 🚩 pendant le test (inchangé), 🚩 en review et 🚩 dans la liste de vocabulaire
+          ajoutent ou retirent le mot (<code>flagPatch()</code>, <code>toggleFlag()</code>). Filtres, option de
+          priorité, bannière et impression s'appellent « Étudier plus tard ».</li>
+      <li><code>vocab_flag_single.sql</code> (à la main, après le push) : sauvegarde des anciens motifs, remap de
+          tous les mots flaggés vers <code>to_study</code> — aucun mot ne sort de la liste — et contrainte CHECK
+          qui interdit toute autre valeur. Le front ne lit jamais <code>flag_reason</code> : il fonctionne avant
+          comme après la migration.</li>
+    </ul>
 
     <h3>Septembre 2026 — 🚩 Quiz : flagger un mot pendant le test, séries de 200</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">

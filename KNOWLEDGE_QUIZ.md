@@ -52,7 +52,7 @@ Caractéristiques clés : répétition espacée adaptative, fil multijoueur avec
 - `example_sentence`, `tips` (optionnels) — `tips` est un indice montré **pendant** la question
 - `extra_info` (optionnel, migration `vocab_extra_info.sql`) — infos complémentaires (temps du verbe, pluriel…) montrées **seulement à la correction** : feedback après réponse, Error Review, liste des mots ratés du résumé. Jamais pendant la question, ni au recto des fiches imprimées.
 - `is_system` (bool) — marque le vocabulaire fourni par le système
-- `flagged_at`, `flag_reason`, `flag_note` — flag d'un mot (Error Review, liste de vocabulaire ou pendant le test, voir §7bis). `flag_reason` ∈ `wrong_translation` | `typo` | `bad_example` | `to_study` | `other` — `to_study` est posé par le flag en un clic pendant le test ; colonne `text` sans contrainte. Colonnes portées par la ligne elle-même : **un seul flag actif par mot, pas d'historique**.
+- `flagged_at`, `flag_reason`, `flag_note` — flag d'un mot = **« Étudier plus tard »**, la seule catégorie du Flagger (Error Review, liste de vocabulaire ou pendant le test, voir §7bis). `flagged_at` non nul = le mot est dans la liste. `flag_reason` vaut toujours `to_study` : contrainte CHECK `vocabulary_flag_reason_single`, posée par `vocab_flag_single.sql`, qui a remappé les anciens motifs (`wrong_translation`, `typo`, `bad_example`, `other`) et les a sauvegardés dans `vocabulary_flag_backup`. `flag_note` n'est plus saisie : une note héritée reste lisible au survol du badge 🚩 et part au retrait du flag. Colonnes portées par la ligne elle-même : **un seul flag actif par mot, pas d'historique**.
 - RLS `own_vocabulary` — couvre déjà les colonnes de flag, pas de policy supplémentaire
 
 **`quiz_progress`** — répétition espacée SM-2
@@ -255,18 +255,18 @@ Implémentation : `launchChallengeQuiz(wordSnapshots, wordIdsFallback, originalM
 
 ---
 
-## 7bis. Corriger ou flagger un mot depuis l'Error Review
+## 7bis. Corriger un mot, ou le flagger pour l'étudier plus tard
 
-Deux gestes sur l'écran Error Review (`#quiz-review`). Ils répondent au même moment de doute —
-« cette correction est fausse » — selon qu'on sait ou non par quoi la remplacer : **corriger** quand
-on sait, **flagger** quand on ne sait pas. Corriger n'existe que là ; flagger est aussi possible
-**pendant le test**, en un clic (voir « Flagger pendant le test » plus bas).
+Deux gestes sur l'écran Error Review (`#quiz-review`), pour deux besoins distincts : **corriger**
+un mot dont la fiche est fausse, et **flagger** un mot qu'on trouve difficile pour l'ajouter à
+**« Étudier plus tard »**, la seule catégorie du Flagger. Corriger n'existe que là ; flagger est
+aussi possible **pendant le test** et **depuis la liste de vocabulaire**, toujours en un clic.
 
 | Geste | Bouton | Écrit |
 |---|---|---|
 | Corriger le mot | ✏️ Fix this word | `source_word`, `target_translation`, `example_sentence`, `tips`, `extra_info` |
 | Supprimer le mot | ✏️ Fix this word → 🗑️ Delete word | `DELETE` sur `vocabulary` (+ `quiz_progress` en cascade) |
-| Signaler la question | 🚩 Flag | `flagged_at`, `flag_reason`, `flag_note` |
+| Ajouter à « Étudier plus tard », ou l'en retirer | 🚩 Flag / 🚩 Flagged | `flagged_at`, `flag_reason = 'to_study'` via `flagPatch(on)` |
 
 ### Ce qui ne bouge pas
 
@@ -274,8 +274,8 @@ on sait, **flagger** quand on ne sait pas. Corriger n'existe que là ; flagger e
   prochaines sessions ; la réponse reste comptée fausse et `quiz_progress` n'est pas retouché. Le
   toast le dit explicitement.
 - **Le flag ne touche ni au score ni au SRS**, et n'exclut pas le mot du tirage.
-- `reviewIndex` ne bouge pas : les panneaux se déplient **en place**, sous la comparaison
-  ❌/✅. Jamais de modale — l'écran tourne en iframe chez Jarvis, une modale centrée sur le
+- `reviewIndex` ne bouge pas : le panneau de correction se déplie **en place**, sous la comparaison
+  ❌/✅, et le 🚩 bascule sans rien ouvrir. Jamais de modale — l'écran tourne en iframe chez Jarvis, une modale centrée sur le
   viewport se placerait de travers.
 
 ### Contraintes d'implémentation
@@ -325,25 +325,26 @@ Pour le mot qui n'a rien à faire dans la liste (doublon, faute d'import, mot in
 
 ### Retrouver un mot flaggé
 
-Un badge 🚩 s'affiche sur la ligne dans l'onglet Vocabulary (titre = motif + note), et le groupe
-de pilules **🚩 Flagged** filtre la liste. Sans ça le flag serait un trou noir : posé une fois,
-jamais revu.
+Un badge 🚩 s'affiche sur la ligne dans l'onglet Vocabulary (titre « Étudier plus tard »), et la
+pilule **🚩 Étudier plus tard** filtre la liste — l'impression suit le même filtre. Sans ça le flag
+serait un trou noir : posé une fois, jamais revu.
 
-Re-cliquer sur **🚩 Flagged** rouvre le panneau prérempli avec `Update flag` et `Remove flag` —
-confirmation par second clic, jamais de `confirm()` (on est en iframe).
+Dans la review, le bouton affiche **🚩 Flagged** quand le mot est dans la liste ; un clic l'en
+retire, un autre l'y remet. Plus de panneau, de motif ni de note : il n'y a rien à confirmer, et
+le geste se défait d'un clic.
 
 ### Travailler les mots flaggés — deux options, aucune imposée
 
-Flagger ne sert pas qu'à signaler une question douteuse : le cas d'usage principal est
-**« ce mot, je dois l'étudier »**. Mais c'est l'utilisateur qui décide quand ça pèse sur une
-session — **par défaut, un mot flaggé est un mot comme les autres** et suit la répétition espacée.
+Flagger un mot, c'est dire **« ce mot, je dois l'étudier »**. Mais c'est l'utilisateur qui décide
+quand ça pèse sur une session — **par défaut, un mot flaggé est un mot comme les autres** et suit la
+répétition espacée.
 
-- Option **Mots à étudier 🚩** dans le setup : `🔀 Mélangés aux autres` (défaut) ou `⏫ En premier`
+- Option **🚩 Étudier plus tard** dans le setup : `🔀 Mélangés aux autres` (défaut) ou `⏫ En premier`
   (`flaggedFirst`). Avec « En premier », `buildQuizQueue()` place les flaggés dans un bucket
   prioritaire, avant les mots dus : flaggé → dû → nouveau (plafonné) → déjà vu. Ils échappent
   alors au plafond `NEW_WORDS_PER_DAY` — c'est un choix explicite, pas une découverte subie. Tri
   par flag le plus récent d'abord, pour survivre au `slice(0, n)`.
-- Filtre **🚩 À étudier** dans « Words to include » (`filter === 'flagged'`) pour une session
+- Filtre **🚩 Étudier plus tard** dans « Words to include » (`filter === 'flagged'`) pour une session
   composée uniquement de mots flaggés. L'option de priorité y est sans effet, et sa note le dit.
 
 L'option n'apparaît que si **au moins un mot est flaggé** dans tout le vocabulaire (pas seulement
@@ -354,7 +355,7 @@ setup, elle n'est pas mémorisée : elle revient sur « Mélangés » à chaque 
 > mots flaggés, chaque session de 10 questions n'était plus faite que de mots flaggés — l'option a
 > remplacé ce comportement imposé.
 
-La bannière du setup n'annonce `🚩 N mots à étudier — ils passeront en premier` que si l'option est
+La bannière du setup n'annonce `🚩 N mots dans « Étudier plus tard » — ils passeront en premier` que si l'option est
 active ; la ligne `🔔 N mots à réviser` ne dit « ensuite » que dans ce cas. Le flag n'est
 **jamais retiré automatiquement** après une bonne réponse — c'est à l'utilisateur de décider qu'un
 mot est acquis.
@@ -362,20 +363,18 @@ mot est acquis.
 ### Flagger pendant le test
 
 Bouton **🚩 Flag** dans la ligne streak / timer de `#quiz-active`, visible avant **et** après la
-réponse (on flagge souvent en lisant la correction). Un clic pose le flag habituel sans quitter la
-question : `flagged_at` + `flag_reason: 'to_study'` + `flag_note: null`. Le motif et la note
-s'ajustent ensuite dans la review (pilule **To study**, présente aussi dans la liste via
-`FLAG_LABELS`).
+réponse (on flagge souvent en lisant la correction). Un clic ajoute le mot à « Étudier plus tard »
+sans quitter la question (`flagPatch(true)` : `flagged_at` + `flag_reason: 'to_study'`).
 
 - **Trois états** (`syncQuizFlagBtn()`, appelée par `showQuestion()`) : `🚩 Flag` ;
   `🚩 Flagged` (marqué dans ce test) ; `🚩 Already flagged`, en pointillé, pour un mot flaggé
-  **avant** le test — sinon, avec « En premier » ou le filtre 🚩 À étudier, toute la session
+  **avant** le test — sinon, avec « En premier » ou le filtre 🚩 Étudier plus tard, toute la session
   s'afficherait comme flaggée pendant le test et la review ne ferait plus le tri.
 - **Deux Sets** remis à zéro au départ de chaque session (`resetSessionFlags()`, y compris
   Challenge Back) : `sessionFlaggedIds` (marqués dans ce test → review + résumé) et
   `sessionFlagWrote` (dont ce test a lui-même posé le flag en base). Marquer un mot déjà flaggé
-  n'écrit rien ; démarquer n'efface que ce que le test a posé — un flag antérieur, avec son motif
-  et sa note, reste en place.
+  n'écrit rien ; démarquer n'efface que ce que le test a posé — un flag antérieur au test reste
+  en place.
 - **Optimiste** : le Set change au clic, l'écriture (`saveWordPatch`) suit, et un échec remet
   l'état d'avant. Sans ça, un timer qui expire pendant l'écriture fermerait la session sans le mot.
   `sessionFlagBusy` ignore un second clic sur le même mot tant que l'écriture court.
@@ -388,23 +387,27 @@ répondus juste ou passés —, dans l'ordre de la session. Le titre suit le con
 `🚩 Flagged words` ou `🔍 Errors & 🚩 flagged words`), une pastille « 🚩 Flagged during the test »
 marque ces mots, et une bonne réponse s'affiche en vert (`✅ Your answer`) au lieu d'être barrée.
 
-**Résumé** : section **🚩 Flagged during this test**, au-dessus de « Words to review » — mot,
-motif, traduction. N'y restent que les mots **toujours** flaggés : un flag retiré ou un mot
+**Résumé** : section **🚩 Flagged during this test**, au-dessus de « Words to review » — mot et
+traduction. N'y restent que les mots **toujours** flaggés : un flag retiré ou un mot
 supprimé pendant la review en sort.
 
 ### Flagger depuis la liste de vocabulaire
 
-Le même geste est disponible hors session, via le bouton 🚩 de la colonne Actions. La ligne est
-**remplacée sur place** par un éditeur (motifs + note + `Flag it` / `Remove flag` / `✕`), sur le
-modèle de `renderEditRow()` — pas de modale.
+Le même geste est disponible hors session, via le bouton 🚩 de la colonne Actions : un clic ajoute
+le mot à « Étudier plus tard », un second l'en retire (`toggleFlag(id)`). Pas d'éditeur.
 
-- `renderVocab()` lit `flaggingId` et rend `renderFlagRow()` pour cette ligne : l'éditeur survit à
-  un re-rendu, et une seule ligne peut être ouverte à la fois. Re-cliquer sur 🚩 referme.
 - Même écriture que depuis la review (`saveWordPatch`), mais la liste étant visible on
-  **re-rend tout de suite** au lieu de différer via `vocabDirty`.
-- `Enter` enregistre, `Escape` annule. Un refus RLS laisse l'éditeur ouvert.
-- Ouvrir un éditeur de flag annule une édition de mot en cours (`editingId = null`) — jamais les
-  deux à la fois.
+  **re-rend tout de suite** au lieu de différer via `vocabDirty`, et `updateAvailNote()` remet à
+  jour les compteurs du setup.
+- `listFlagBusy` ignore un second clic sur le même mot tant que l'écriture court. Un refus RLS
+  laisse la ligne telle quelle, avec le toast de `saveWordPatch`.
+
+> Historique : jusqu'au 4 octobre 2026, le flag portait un motif au choix (`wrong_translation`,
+> `typo`, `bad_example`, `to_study`, `other`) et une note libre, saisis dans un panneau de la review
+> ou un éditeur en ligne dans la liste. Ils ont été fusionnés dans « Étudier plus tard » :
+> `vocab_flag_single.sql` remappe les anciens flags (aucun mot ne sort de la liste) et interdit
+> toute autre valeur. L'affichage ne lit jamais `flag_reason`, donc le front marche avant comme
+> après la migration.
 
 ---
 
@@ -434,7 +437,7 @@ let vocabDirty = false      // mot corrigé/flaggé en review → recharger plus
 | `recordAnswer(wordId, isCorrect)` | Upsert `quiz_progress` (logique SM-2). |
 | `saveWordPatch(id, patch)` | Écriture ciblée d'un patch sur un mot — mute l'objet en place, marque `vocabDirty`, **ne recharge pas** le vocabulaire. Partagée par la review et le flag depuis la liste (§7bis). |
 | `flushVocabDirty()` | Repagination différée, une seule fois, hors review. |
-| `startFlag(id)` / `renderFlagRow(word)` | Éditeur de flag en ligne dans la liste de vocabulaire (§7bis). |
+| `flagPatch(on)` / `toggleFlag(id)` | Patch « Étudier plus tard » (ajout ou retrait) ; bascule en un clic depuis la liste de vocabulaire (§7bis). |
 | `syncQuizFlagBtn()` / `resetSessionFlags()` | Flag pendant le test : état du bouton 🚩 de la question courante, remise à zéro des Sets de session (§7bis). |
 | `computeVocabNumbers()` | Numéro permanent de chaque mot = rang de création (§7). Appelée par `loadVocab()`. |
 | `sortVocabList(list)` | Tri de la liste selon `sortCol` / `sortDir`, vides en bas (§7). |

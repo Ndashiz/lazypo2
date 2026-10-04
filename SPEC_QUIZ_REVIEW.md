@@ -1,5 +1,10 @@
 # SPEC — Quiz : corriger un mot & flagger une question depuis l'Error Review
 
+> **Remplacé en partie (4 octobre 2026).** La Feature B ci-dessous (motifs de flag, note, panneau
+> de flag) n'existe plus : le Flagger n'a qu'une catégorie, « Étudier plus tard », posée en un clic
+> (`vocab_flag_single.sql`, `KNOWLEDGE_QUIZ.md` §7bis). Ne pas réintroduire de motifs à partir de
+> cette fiche. La Feature A (corriger le mot) reste d'actualité.
+
 Fiche de travail pour une session Claude Code sur `~/Documents/lazypo` (repo `Ndashiz/pro`).
 Lis **`CLAUDE.md`** avant de toucher quoi que ce soit — les invariants prod y sont, ils ne sont
 pas répétés ici. Ce fichier décrit **quoi** construire et **quelles décisions sont déjà prises**.

@@ -130,7 +130,8 @@ create policy "own_vocabulary" on public.vocabulary
 -- alter table public.vocabulary add column if not exists is_system boolean default false;
 -- alter table public.vocabulary add column if not exists tips text;
 -- alter table public.vocabulary add column if not exists extra_info text;   (vocab_extra_info.sql)
--- Flag d'un mot (Error Review, liste, ou pendant le test) — flag_reason ∈ {wrong_translation, typo, bad_example, to_study, other}
+-- Flag d'un mot (Error Review, liste, ou pendant le test) = « Étudier plus tard », seule catégorie :
+-- flag_reason vaut toujours 'to_study' (contrainte CHECK + remap des anciens motifs : vocab_flag_single.sql)
 -- alter table public.vocabulary add column if not exists flagged_at  timestamptz;
 -- alter table public.vocabulary add column if not exists flag_reason text;
 -- alter table public.vocabulary add column if not exists flag_note   text;
@@ -1127,7 +1128,6 @@ body { padding-left: 64px; }
   transition: border-color .15s;
 }
 .review-input:focus { border-color: var(--accent); }
-#review-flag-reasons { flex-wrap: wrap; margin-bottom: 12px; }
 .review-panel-actions {
   display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px;
 }
@@ -1171,7 +1171,6 @@ body { padding-left: 64px; }
   font-size: 11.5px; font-weight: 600; color: var(--warning);
   background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.3);
 }
-.qz-flag-reason { color: var(--warning); font-size: 11px; font-weight: 500; opacity: .85; }
 .qz-flagged-hint {
   padding: 10px 16px; font-size: 12px; color: var(--muted);
   border-top: 1px solid var(--border); background: var(--surface2);
@@ -1188,22 +1187,10 @@ body { padding-left: 64px; }
 }
 .qz-range-input:focus { border-color: var(--accent); }
 
-/* Flag depuis la liste de vocabulaire — ligne remplacée sur place */
+/* Flag depuis la liste de vocabulaire — un clic sur 🚩 ajoute ou retire de « Étudier plus tard » */
 .icon-btn.btn-flag { opacity: .45; }
 .icon-btn.btn-flag:hover { opacity: 1; }
 .icon-btn.btn-flag.flagged { opacity: 1; background: rgba(245,158,11,.14); }
-.qz-table tr.flagging-row td { background: rgba(245,158,11,.05); }
-.vf-wrap {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0;
-}
-.vf-word { font-weight: 600; font-size: 13px; white-space: nowrap; }
-.vf-reasons { flex-wrap: wrap; }
-.vf-reasons .qz-pill { font-size: 12px; padding: 4px 8px; }
-/* La note absorbe la place restante mais cède avant que ✕ ne saute à la ligne */
-.vf-note { flex: 1 1 110px; min-width: 90px; padding: 6px 10px; font-size: 13px; }
-.vf-wrap .btn-primary,
-.vf-wrap .btn-secondary,
-.vf-wrap .btn-ghost { padding: 6px 12px; font-size: 12px; }
 
 @media (max-width: 520px) {
   .review-compare { grid-template-columns: 1fr; }
@@ -2023,7 +2010,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
   html.qz-embed .qz-main { padding: 14px 14px 48px !important; }
   /* iOS zoome sur tout champ < 16px au focus, puis laisse la page décalée :
      tous les champs de saisie passent à 16px sur mobile. */
-  .qz-input, .qz-search, .review-input, .edit-input, .vf-note,
+  .qz-input, .qz-search, .review-input, .edit-input,
   .qz-answer-input, select, textarea { font-size: 16px; }
   .qz-add-row { flex-direction: column; }
   .qz-add-row .qz-input { width: 100%; }
@@ -2375,7 +2362,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
       </div>
       <div class="qz-pill-group" role="group" aria-label="Flag filter">
         <button class="qz-pill active" data-flag-filter="all">All</button>
-        <button class="qz-pill" data-flag-filter="flagged">🚩 Flagged</button>
+        <button class="qz-pill" data-flag-filter="flagged">🚩 Étudier plus tard</button>
       </div>
       <span class="qz-word-count" id="word-count">0 words</span>
     </div>
@@ -2502,14 +2489,14 @@ tr.row-selected { background: rgba(59,130,246,.05); }
             <button class="qz-pill"        data-filter="NL→FR">NL→FR</button>
             <button class="qz-pill"        data-filter="nl-fr">🇳🇱 Néerlandais</button>
             <button class="qz-pill"        data-filter="practice">Needs practice</button>
-            <button class="qz-pill"        data-filter="flagged">🚩 À étudier</button>
+            <button class="qz-pill"        data-filter="flagged">🚩 Étudier plus tard</button>
           </div>
         </div>
 
         <!-- Mots flaggés : mélangés aux autres par défaut, en tête seulement si on
              le demande. Masqué tant qu'aucun mot n'est flaggé. -->
         <div class="qz-option-group" id="flag-priority-group" style="display:none;">
-          <div class="qz-option-label">Mots à étudier 🚩</div>
+          <div class="qz-option-label">🚩 Étudier plus tard</div>
           <div class="qz-pill-group" id="flag-priority-pills" role="group" aria-label="Priorité des mots flaggés">
             <button class="qz-pill active" data-flag-priority="mixed">🔀 Mélangés aux autres</button>
             <button class="qz-pill"        data-flag-priority="first">⏫ En premier</button>
@@ -2677,24 +2664,6 @@ tr.row-selected { background: rgba(59,130,246,.05); }
           <div class="review-panel-hint">Updates your vocabulary for next time — this session's score stays as it is.</div>
         </div>
 
-        <div class="review-panel" id="review-flag-panel" style="display:none;">
-          <div class="review-panel-label">What's wrong with this question?</div>
-          <div class="qz-pill-group" id="review-flag-reasons" role="group" aria-label="Flag reason">
-            <button class="qz-pill active" data-flag-reason="wrong_translation">Wrong translation</button>
-            <button class="qz-pill"        data-flag-reason="typo">Typo / spelling</button>
-            <button class="qz-pill"        data-flag-reason="bad_example">Bad example sentence</button>
-            <button class="qz-pill"        data-flag-reason="to_study">To study</button>
-            <button class="qz-pill"        data-flag-reason="other">Something else</button>
-          </div>
-          <div class="review-panel-label">Note <span class="review-panel-opt">(optional)</span></div>
-          <input class="review-input" id="review-flag-note" maxlength="200" autocomplete="off" placeholder="What should be fixed?">
-          <div class="review-panel-actions">
-            <button class="btn-primary" id="review-flag-save"   style="padding:8px 16px;font-size:13px;">Flag it</button>
-            <button class="btn-ghost danger" id="review-flag-remove" style="display:none;">Remove flag</button>
-            <button class="btn-secondary" id="review-flag-cancel" style="padding:8px 14px;font-size:13px;">Cancel</button>
-          </div>
-        </div>
-
         <div class="review-actions">
           <button class="btn-secondary" id="review-btn-prev">← Previous</button>
           <button class="btn-primary"   id="review-btn-next">Next →</button>
@@ -2745,7 +2714,7 @@ tr.row-selected { background: rgba(59,130,246,.05); }
       <div id="flagged-section" class="qz-missed-list" style="display:none;">
         <div class="qz-missed-header">🚩 Flagged during this test</div>
         <div id="flagged-list"></div>
-        <div class="qz-flagged-hint">They stay flagged — pick <strong>🚩 À étudier</strong> in the quiz setup to drill them.</div>
+        <div class="qz-flagged-hint">They stay in <strong>Étudier plus tard</strong> — pick <strong>🚩 Étudier plus tard</strong> in the quiz setup to drill them.</div>
       </div>
 
       <div id="missed-section" class="qz-missed-list" style="display:none;">
@@ -3532,13 +3501,25 @@ async function updateWord(id, obj) {
   showToast('Word updated');
 }
 
-const FLAG_LABELS = {
-  wrong_translation: 'Wrong translation',
-  typo:              'Typo / spelling',
-  bad_example:       'Bad example sentence',
-  to_study:          'To study',   // posé en un clic pendant le test (§7bis)
-  other:             'Something else',
-};
+/* Flagger un mot = l'ajouter à « Étudier plus tard ». C'est la seule catégorie :
+   les anciens motifs (wrong_translation, typo, bad_example, other) et la note
+   libre ont disparu. En base, flag_reason vaut toujours 'to_study' (contrainte
+   CHECK de vocab_flag_single.sql, qui a remappé les anciens flags). L'affichage
+   ne lit jamais flag_reason : tout mot flaggé est dans la liste, migration
+   passée ou non. */
+const STUDY_LATER = 'Étudier plus tard';
+
+function flagPatch(on) {
+  return on
+    ? { flagged_at: new Date().toISOString(), flag_reason: 'to_study', flag_note: null }
+    : { flagged_at: null, flag_reason: null, flag_note: null };
+}
+
+/* Titre du badge 🚩. Une note posée avant la simplification reste lisible au
+   survol — elle n'est plus ni saisie ni modifiable, et part au retrait du flag. */
+function flagTitle(word) {
+  return STUDY_LATER + (word.flag_note ? ' — ' + word.flag_note : '');
+}
 
 /* Vocabulaire modifié depuis l'Error Review : la liste est rechargée plus tard,
    une seule fois (retour sur l'onglet vocabulaire ou fin de session). */
@@ -3972,8 +3953,6 @@ let searchQuery     = '';
 let sortCol         = 'num';   // colonne de tri (clé de SORT_ACCESSORS)
 let sortDir         = 'desc';  // 'asc' | 'desc' — n° décroissant = plus récents en haut
 let editingId       = null;
-let flaggingId      = null;    // ligne dont l'éditeur de flag est ouvert (lu par renderVocab)
-let vfReason        = 'wrong_translation';
 let vocabPage       = 0;
 const VOCAB_PER_PAGE = 20;
 
@@ -4177,7 +4156,7 @@ function runPrint() {
   if (!list.length) { showToast('Aucun mot à imprimer avec ces filtres'); return; }
 
   const langLabel  = filterLang !== 'all' ? ` · ${filterLang}` : '';
-  const flagLabel  = flagFilter === 'flagged' ? ' · 🚩 flaggés' : '';
+  const flagLabel  = flagFilter === 'flagged' ? ` · 🚩 ${STUDY_LATER}` : '';
   const rangeLabel = (o.from !== null || o.to !== null)
     ? ` · n° ${o.from ?? 1} à ${o.to ?? '…'}` : '';
   const now = new Date().toLocaleDateString('fr-FR', { day:'2-digit', month:'long', year:'numeric' });
@@ -4410,13 +4389,10 @@ function renderVocab() {
     return;
   }
 
-  tbody.innerHTML = list.map(word =>
-    word.id === flaggingId ? renderFlagRow(word) : renderVocabRow(word)
-  ).join('');
+  tbody.innerHTML = list.map(renderVocabRow).join('');
   renderSortIndicators();
   updateBulkBar();
   attachRowListeners();
-  attachFlagListeners();   // no-op tant qu'aucune ligne n'est en flag
   document.getElementById('vocab-pagination').innerHTML = '';
 }
 
@@ -4456,11 +4432,8 @@ function renderVocabRow(word) {
   const info    = word.extra_info
     ? `<span title="${escHtml(word.extra_info)}">${escHtml(word.extra_info.length > 28 ? word.extra_info.slice(0,28)+'…' : word.extra_info)}</span>`
     : '<span style="opacity:.3">—</span>';
-  const flagTitle = word.flagged_at
-    ? (FLAG_LABELS[word.flag_reason] || 'Flagged') + (word.flag_note ? ' — ' + word.flag_note : '')
-    : '';
   const flag = word.flagged_at
-    ? ` <span class="flag-badge" title="${escHtml(flagTitle)}">🚩</span>`
+    ? ` <span class="flag-badge" title="${escHtml(flagTitle(word))}">🚩</span>`
     : '';
   return `<tr data-id="${word.id}">
     <td class="num-col">${vocabNum[word.id] || '—'}</td>
@@ -4479,32 +4452,9 @@ function renderVocabRow(word) {
     <td>
       <button class="icon-btn btn-edit" data-id="${word.id}" title="Edit" aria-label="Edit word">✏️</button>
       <button class="icon-btn btn-flag${word.flagged_at ? ' flagged' : ''}" data-id="${word.id}"
-              title="${word.flagged_at ? escHtml(flagTitle) : 'Signaler ce mot'}" aria-label="Flag word">🚩</button>
+              title="${word.flagged_at ? `Dans « ${STUDY_LATER} » — cliquer pour l'en retirer` : `Ajouter à « ${STUDY_LATER} »`}"
+              aria-label="${STUDY_LATER}" aria-pressed="${word.flagged_at ? 'true' : 'false'}">🚩</button>
       <button class="icon-btn danger btn-delete" data-id="${word.id}" title="Delete" aria-label="Delete word">🗑️</button>
-    </td>
-  </tr>`;
-}
-
-/* Éditeur de flag en ligne, sur le modèle de renderEditRow : la ligne est
-   remplacée sur place, pas de modale (la page tourne en iframe chez Jarvis). */
-function renderFlagRow(word) {
-  const flagged  = !!word.flagged_at;
-  const selected = word.flag_reason || 'wrong_translation';
-  const pills = Object.entries(FLAG_LABELS).map(([v, label]) =>
-    `<button class="qz-pill${v === selected ? ' active' : ''}" data-vf-reason="${v}">${escHtml(label)}</button>`
-  ).join('');
-  return `<tr data-id="${word.id}" class="flagging-row">
-    <td class="num-col">${vocabNum[word.id] || '—'}</td>
-    <td colspan="8">
-      <div class="vf-wrap">
-        <span class="vf-word">🚩 ${escHtml(word.source_word)}</span>
-        <div class="qz-pill-group vf-reasons">${pills}</div>
-        <input class="review-input vf-note" id="vf-note" maxlength="200"
-               placeholder="Note (facultatif)…" value="${escHtml(word.flag_note || '')}">
-        <button class="btn-primary vf-save" data-id="${word.id}">${flagged ? 'Update' : 'Flag it'}</button>
-        ${flagged ? `<button class="btn-ghost danger vf-remove" data-id="${word.id}">Remove flag</button>` : ''}
-        <button class="btn-secondary vf-cancel" title="Annuler">✕</button>
-      </div>
     </td>
   </tr>`;
 }
@@ -4544,7 +4494,7 @@ function attachRowListeners() {
     btn.addEventListener('click', () => startEdit(btn.dataset.id));
   });
   document.querySelectorAll('.btn-flag').forEach(btn => {
-    btn.addEventListener('click', () => startFlag(btn.dataset.id));
+    btn.addEventListener('click', () => toggleFlag(btn.dataset.id));
   });
   document.querySelectorAll('.btn-delete').forEach(btn => {
     btn.addEventListener('click', () => deleteWord(btn.dataset.id));
@@ -4552,58 +4502,23 @@ function attachRowListeners() {
 }
 
 /* ── Flag depuis la liste de vocabulaire ──────────────────────────
-   Même écriture que depuis l'Error Review (saveWordPatch), mais ici la liste
-   est visible : on re-rend tout de suite au lieu de différer.
-   flaggingId / vfReason sont déclarés avec l'état vocabulaire plus haut. */
+   Un clic sur 🚩 ajoute le mot à « Étudier plus tard », un second l'en retire.
+   Plus d'éditeur : il n'y a ni motif à choisir ni note à saisir. Même écriture
+   que la review (saveWordPatch), mais la liste est visible : on re-rend tout de
+   suite au lieu de différer. */
+const listFlagBusy = new Set();   // un double clic croiserait deux écritures
 
-function startFlag(id) {
+async function toggleFlag(id) {
   const word = vocab.find(w => w.id === id);
-  if (!word) return;
-  editingId  = null;                              // jamais édition et flag à la fois
-  flaggingId = (flaggingId === id) ? null : id;   // re-clic sur 🚩 = refermer
-  if (flaggingId) vfReason = word.flag_reason || 'wrong_translation';
-  renderVocab();                                  // renderVocab lit flaggingId
-  document.getElementById('vf-note')?.focus();
-}
-
-function attachFlagListeners() {
-  document.querySelectorAll('.flagging-row [data-vf-reason]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.flagging-row [data-vf-reason]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      vfReason = btn.dataset.vfReason;
-    });
-  });
-
-  const close = () => { flaggingId = null; renderVocab(); };
-
-  document.querySelector('.vf-save')?.addEventListener('click', async e => {
-    const id   = e.target.dataset.id;
-    const note = (document.getElementById('vf-note')?.value || '').trim().slice(0, 200);
-    const ok = await saveWordPatch(id, {
-      flagged_at:  new Date().toISOString(),
-      flag_reason: vfReason,
-      flag_note:   note || null,
-    });
-    if (!ok) return;
-    close();
-    showToast('Mot signalé');
-  });
-
-  document.querySelector('.vf-remove')?.addEventListener('click', async e => {
-    const ok = await saveWordPatch(e.target.dataset.id,
-      { flagged_at: null, flag_reason: null, flag_note: null });
-    if (!ok) return;
-    close();
-    showToast('Flag retiré');
-  });
-
-  document.querySelector('.vf-cancel')?.addEventListener('click', close);
-
-  document.getElementById('vf-note')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); document.querySelector('.vf-save')?.click(); }
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-  });
+  if (!word || listFlagBusy.has(id)) return;
+  const on = !word.flagged_at;
+  listFlagBusy.add(id);
+  const ok = await saveWordPatch(id, flagPatch(on));   // toast d'erreur géré par saveWordPatch
+  listFlagBusy.delete(id);
+  if (!ok) return;
+  renderVocab();
+  updateAvailNote();   // le setup du quiz compte les mots flaggés
+  showToast(on ? `Ajouté à « ${STUDY_LATER} »` : `Retiré de « ${STUDY_LATER} »`);
 }
 
 function startEdit(id) {
@@ -4806,7 +4721,7 @@ function updateAvailNote() {
     let txt;
     if (avail === 0 && quizFilter === 'flagged') {
       // Dire quoi faire, pas seulement qu'il n'y a rien
-      txt = 'Aucun mot flaggé — signale un mot avec 🚩 pendant un test, depuis l\'Error Review ou la liste de vocabulaire.';
+      txt = `« ${STUDY_LATER} » est vide — flagge un mot avec 🚩 pendant un test, depuis l'Error Review ou la liste de vocabulaire.`;
     } else {
       txt = `${avail} word${avail !== 1 ? 's' : ''} available`;
       if (freshCount > 0 && newAllowance === 0) {
@@ -4824,7 +4739,7 @@ function updateAvailNote() {
   // file vide planterait showQuestion()
   if (startBtn) startBtn.disabled = reachable === 0;
 
-  // Option « Mots à étudier » : visible dès qu'un mot est flaggé quelque part
+  // Option « Étudier plus tard » : visible dès qu'un mot est flaggé quelque part
   // (sur tout le vocabulaire, pour qu'elle n'apparaisse pas et ne disparaisse pas
   // au gré des filtres), avec le décompte de la sélection courante.
   const prioGroup = document.getElementById('flag-priority-group');
@@ -4833,7 +4748,7 @@ function updateAvailNote() {
     const prioNote = document.getElementById('flag-priority-note');
     const nMots = `${flaggedCount} mot${flaggedCount > 1 ? 's' : ''} flaggé${flaggedCount > 1 ? 's' : ''}`;
     prioNote.textContent =
-        quizFilter === 'flagged' ? 'Sans effet ici : avec le filtre 🚩 À étudier, toute la session est déjà faite de mots flaggés.'
+        quizFilter === 'flagged' ? `Sans effet ici : avec le filtre 🚩 ${STUDY_LATER}, toute la session est déjà faite de ces mots.`
       : flaggedCount === 0       ? 'Aucun mot flaggé dans ta sélection.'
       : flaggedFirst             ? `${nMots} dans ta sélection — ${flaggedCount > 1 ? 'ils passeront' : 'il passera'} avant tous les autres.`
       :                            `${nMots} dans ta sélection — ${flaggedCount > 1 ? 'traités' : 'traité'} comme les autres, selon la répétition espacée.`;
@@ -4844,7 +4759,7 @@ function updateAvailNote() {
   if (banner) {
     const msgs = [];
     if (flaggedFirst && flaggedCount > 0 && quizFilter !== 'flagged') {
-      msgs.push(`🚩 ${flaggedCount} mot${flaggedCount > 1 ? 's' : ''} à étudier — ${flaggedCount > 1 ? 'ils passeront' : 'il passera'} en premier.`);
+      msgs.push(`🚩 ${flaggedCount} mot${flaggedCount > 1 ? 's' : ''} dans « ${STUDY_LATER} » — ${flaggedCount > 1 ? 'ils passeront' : 'il passera'} en premier.`);
     }
     if (dueCount > 0) {
       // « ensuite » n'a de sens que si les flaggés passent devant
@@ -5119,10 +5034,10 @@ document.getElementById('btn-prev').addEventListener('click', () => {
 });
 
 /* ── Flag pendant le test ──────────────────────────────────────────
-   Le même flag que depuis l'Error Review ou la liste (flagged_at…), posé en
-   un clic sans quitter la question, motif « to_study » — ajustable ensuite
-   dans la review. Un mot flaggé ici rejoint la review de fin de test même
-   répondu juste ou passé. Ni le score, ni le SRS, ni le timer ne bougent. */
+   Le même flag que depuis l'Error Review ou la liste : un clic ajoute le mot
+   à « Étudier plus tard » sans quitter la question. Un mot flaggé ici rejoint
+   la review de fin de test même répondu juste ou passé. Ni le score, ni le
+   SRS, ni le timer ne bougent. */
 const sessionFlaggedIds = new Set();   // flaggés pendant CE test → review + résumé
 const sessionFlagWrote  = new Set();   // …dont ce test a lui-même posé le flag en base
 const sessionFlagBusy   = new Set();   // écriture en cours — un double clic croiserait deux écritures
@@ -5144,9 +5059,9 @@ function syncQuizFlagBtn() {
   btn.classList.toggle('pre-flagged', pre);
   btn.setAttribute('aria-pressed', marked ? 'true' : 'false');
   btn.textContent = marked ? '🚩 Flagged' : pre ? '🚩 Already flagged' : '🚩 Flag';
-  btn.title = marked ? 'Flaggé — tu le reverras dans la review de fin de test. Re-clique pour annuler.'
-            : pre    ? 'Déjà dans tes mots à étudier — clique pour le revoir dans la review de fin de test.'
-            :          'Flagger ce mot — tu le reverras dans la review de fin de test.';
+  btn.title = marked ? `Ajouté à « ${STUDY_LATER} » — tu le reverras dans la review de fin de test. Re-clique pour annuler.`
+            : pre    ? `Déjà dans « ${STUDY_LATER} » — clique pour le revoir dans la review de fin de test.`
+            :          `Ajouter à « ${STUDY_LATER} » — tu le reverras dans la review de fin de test.`;
 }
 
 document.getElementById('btn-quiz-flag').addEventListener('click', async () => {
@@ -5166,8 +5081,8 @@ document.getElementById('btn-quiz-flag').addEventListener('click', async () => {
   // En base : poser le flag s'il n'y en avait pas ; en le retirant, ne défaire
   // que ce que ce test a posé — un flag antérieur au test reste en place.
   const patch = marking
-    ? (word.flagged_at ? null : { flagged_at: new Date().toISOString(), flag_reason: 'to_study', flag_note: null })
-    : (sessionFlagWrote.has(id) ? { flagged_at: null, flag_reason: null, flag_note: null } : null);
+    ? (word.flagged_at ? null : flagPatch(true))
+    : (sessionFlagWrote.has(id) ? flagPatch(false) : null);
   if (!patch) return;
 
   sessionFlagBusy.add(id);
@@ -5559,7 +5474,7 @@ function showReviewItem() {
 /* ── Corriger / flagger le mot courant, sans quitter la review ─────
    Aucune navigation, reviewIndex ne bouge pas, la session n'est pas relancée. */
 
-let reviewFlagReason = 'wrong_translation';
+let reviewFlagBusy = false;   // écriture du flag en cours — un double clic croiserait deux écritures
 
 /* Mots supprimés pendant la review. Un Set d'ids plutôt qu'un marqueur posé sur
    l'objet mot : les lignes Supabase restent des lignes, et un id supprimé ne
@@ -5573,7 +5488,6 @@ function reviewCurrentWord() {
 
 function reviewClosePanels() {
   document.getElementById('review-edit-panel').style.display = 'none';
-  document.getElementById('review-flag-panel').style.display = 'none';
   reviewHideDeleteConfirm();
 }
 
@@ -5590,6 +5504,9 @@ function reviewSyncTools() {
   const flagged = !!word.flagged_at;
   flagBtn.textContent = flagged ? '🚩 Flagged' : '🚩 Flag';
   flagBtn.classList.toggle('flagged', flagged);
+  flagBtn.setAttribute('aria-pressed', flagged ? 'true' : 'false');
+  flagBtn.title = flagged ? `Dans « ${STUDY_LATER} » — clique pour l'en retirer`
+                          : `Ajouter à « ${STUDY_LATER} »`;
 }
 
 document.getElementById('review-btn-edit').addEventListener('click', () => {
@@ -5597,7 +5514,6 @@ document.getElementById('review-btn-edit').addEventListener('click', () => {
   if (!word || !word.id) return;
   const panel = document.getElementById('review-edit-panel');
   const open  = panel.style.display === 'none';
-  document.getElementById('review-flag-panel').style.display = 'none'; // jamais les deux
   reviewHideDeleteConfirm();
   panel.style.display = open ? 'block' : 'none';
   if (!open) return;
@@ -5718,70 +5634,31 @@ document.getElementById('review-delete-confirm').addEventListener('keydown', e =
 
 /* Enter = Save, Escape = Cancel. stopPropagation() pour qu'un Enter en pleine
    correction ne puisse jamais faire avancer le quiz. */
-['review-edit-source', 'review-edit-target', 'review-edit-example', 'review-edit-tips', 'review-edit-info', 'review-flag-note']
+['review-edit-source', 'review-edit-target', 'review-edit-example', 'review-edit-tips', 'review-edit-info']
   .forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
       if (e.key !== 'Enter' && e.key !== 'Escape') return;
       e.stopPropagation();
       e.preventDefault();
       if (e.key === 'Escape') { reviewClosePanels(); return; }
-      if (id === 'review-flag-note') reviewCommitFlag();
-      else                           reviewCommitEdit();
+      reviewCommitEdit();
     });
   });
 
-document.getElementById('review-btn-flag').addEventListener('click', () => {
-  const word  = reviewCurrentWord();
-  if (!word || !word.id) return;
-  const panel = document.getElementById('review-flag-panel');
-  const open  = panel.style.display === 'none';
-  document.getElementById('review-edit-panel').style.display = 'none';
-  panel.style.display = open ? 'block' : 'none';
-  if (!open) return;
-
-  const flagged = !!word.flagged_at;
-  reviewFlagReason = word.flag_reason || 'wrong_translation';
-  document.querySelectorAll('#review-flag-reasons .qz-pill').forEach(b => {
-    b.classList.toggle('active', b.dataset.flagReason === reviewFlagReason);
-  });
-  document.getElementById('review-flag-note').value      = word.flag_note || '';
-  document.getElementById('review-flag-save').textContent = flagged ? 'Update flag' : 'Flag it';
-  // Retrait du flag : confirmation par second clic, pas de confirm() — on est en iframe
-  document.getElementById('review-flag-remove').style.display = flagged ? 'inline-flex' : 'none';
-});
-
-document.querySelectorAll('#review-flag-reasons .qz-pill').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#review-flag-reasons .qz-pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    reviewFlagReason = btn.dataset.flagReason;
-  });
-});
-
-async function reviewCommitFlag() {
+/* 🚩 en review : un clic ajoute le mot à « Étudier plus tard », un second l'en
+   retire. Ni motif ni note. Le panneau de correction ouvert reste ouvert :
+   seul le bouton se resynchronise. */
+document.getElementById('review-btn-flag').addEventListener('click', async () => {
   const word = reviewCurrentWord();
-  if (!word || !word.id) return;
-  const note = document.getElementById('review-flag-note').value.trim().slice(0, 200);
-  const ok = await saveWordPatch(word.id, {
-    flagged_at:  new Date().toISOString(),
-    flag_reason: reviewFlagReason,
-    flag_note:   note || null,
-  });
+  if (!word || !word.id || reviewFlagBusy) return;
+  const on = !word.flagged_at;
+  reviewFlagBusy = true;
+  const ok = await saveWordPatch(word.id, flagPatch(on));   // toast d'erreur géré par saveWordPatch
+  reviewFlagBusy = false;
   if (!ok) return;
-  showReviewItem();
-  showToast('Question flaggée — ni le score ni le SRS ne changent.');
-}
-
-document.getElementById('review-flag-save').addEventListener('click', reviewCommitFlag);
-document.getElementById('review-flag-cancel').addEventListener('click', reviewClosePanels);
-
-document.getElementById('review-flag-remove').addEventListener('click', async () => {
-  const word = reviewCurrentWord();
-  if (!word || !word.id) return;
-  const ok = await saveWordPatch(word.id, { flagged_at: null, flag_reason: null, flag_note: null });
-  if (!ok) return;
-  showReviewItem();
-  showToast('Flag retiré');
+  reviewSyncTools();
+  showToast(on ? `Ajouté à « ${STUDY_LATER} » — ni le score ni le SRS ne changent.`
+               : `Retiré de « ${STUDY_LATER} »`);
 });
 
 document.getElementById('review-btn-next').addEventListener('click', () => {
@@ -5825,18 +5702,14 @@ function showSummary() {
     .map(w => [w.id, w])).values()];
   const flaggedSec = document.getElementById('flagged-section');
   flaggedSec.style.display = flaggedWords.length ? 'block' : 'none';
-  document.getElementById('flagged-list').innerHTML = flaggedWords.map(w => {
-    const reason = FLAG_LABELS[w.flag_reason] || 'Flagged';
-    return `
+  document.getElementById('flagged-list').innerHTML = flaggedWords.map(w => `
       <div class="qz-missed-item">
         <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);">${escHtml(w.language_pair)}</span>
           <span class="qz-missed-word">${escHtml(w.source_word)}</span>
-          <span class="qz-flag-reason" title="${escHtml(w.flag_note || '')}">${escHtml(reason)}</span>
         </span>
         <span class="qz-missed-answer">→ ${escHtml(w.target_translation)}</span>
-      </div>`;
-  }).join('');
+      </div>`).join('');
 
   const missed = sessionAnswers.filter(a => !a.correct);
   const missedSec  = document.getElementById('missed-section');
