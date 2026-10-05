@@ -2448,6 +2448,20 @@ graph TB
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
 
+    <h3>Octobre 2026 — 📊 Quiz : statistiques clés après chaque quiz</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Bloc « Your stats » sur le résumé : temps passé et taux de réussite aujourd'hui et depuis le début (toutes les
+          séances de vocabulaire de <code>quiz_sessions</code>, tous appareils), mots maîtrisés et gain de la séance.</li>
+      <li>Durée d'une séance : du Start à l'écran de résultats, review comprise, moins le temps où la page était masquée.
+          Postée à la dernière réponse, puis <code>duration_sec</code> complétée en base à l'affichage des résultats.</li>
+    </ul>
+
+    <h3>Octobre 2026 — ↻ Quiz : un mot sort au plus deux fois par séance</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Une seule re-question par mot et par séance (<code>RELEARN_MAX = 1</code>) : un mot raté, passé ou nouveau
+          revient une fois, puis plus. Avant, jusqu'à trois reprises — quatre apparitions du même mot dans une série.</li>
+    </ul>
+
     <h3>Octobre 2026 — 🧩 Quiz : la phrase d'exemple en contexte quand on demande le mot</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">
       <li>En production (FR → NL), la phrase d'exemple s'affiche sous la question avec le mot caché :

@@ -1408,6 +1408,25 @@ body { padding-left: 64px; }
 }
 .sf-streak { color: #f59e0b !important; }
 
+/* Statistiques clés du résumé : aujourd'hui / depuis le début, mots maîtrisés */
+.qz-key-stats {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px; margin-bottom: 20px;
+}
+.ks-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 12px;
+}
+.ks-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) 1fr 1fr; gap: 8px 12px; align-items: baseline; }
+.ks-head { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-align: right; }
+.ks-label { font-size: 13px; color: var(--muted); }
+.ks-val { font-size: 18px; font-weight: 700; font-family: 'DM Mono', monospace; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+.ks-mastered { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); }
+.ks-mastered-val { font-size: 18px; font-weight: 700; font-family: 'DM Mono', monospace; color: var(--success); margin-right: 4px; }
+.ks-delta { color: var(--success); font-weight: 600; }
+.ks-delta.neg { color: var(--muted); }
+.ks-note { margin-top: 8px; font-size: 12px; color: var(--muted); }
+
 /* ══════════════════════════════════════
    PROGRESS VIEW
 ══════════════════════════════════════ */
@@ -2791,6 +2810,21 @@ tr.row-selected { background: rgba(59,130,246,.05); }
         </div>
         <div class="qz-stopped-note" id="summary-stopped" style="display:none;"></div>
         <div class="qz-summary-notes" id="summary-notes"></div>
+      </div>
+
+      <!-- Statistiques clés après chaque quiz : temps et réussite (aujourd'hui /
+           depuis le début, tous appareils via quiz_sessions), mots maîtrisés -->
+      <div class="qz-key-stats" id="summary-key-stats">
+        <div class="ks-title">Your stats</div>
+        <div class="ks-grid">
+          <span></span><span class="ks-head">Today</span><span class="ks-head">All time</span>
+          <span class="ks-label">⏱ Time spent</span><span class="ks-val" id="ks-time-today">…</span><span class="ks-val" id="ks-time-all">…</span>
+          <span class="ks-label">✅ Success rate</span><span class="ks-val" id="ks-rate-today">…</span><span class="ks-val" id="ks-rate-all">…</span>
+        </div>
+        <div class="ks-mastered" title="Mastered: at least 80 % right on your recent answers, with 3 tries or more">
+          <span class="ks-mastered-val" id="ks-mastered">…</span> words mastered <span class="ks-delta" id="ks-mastered-delta"></span>
+        </div>
+        <div class="ks-note" id="ks-note"></div>
       </div>
 
       <!-- Session stats footer (streak, time, total) -->
@@ -5594,7 +5628,7 @@ function makeQuizItem(word, dir, extra = {}) {
 }
 
 /* ── Démarrer une séance ── */
-const RELEARN_MAX = 3;         // re-questions par mot et par séance
+const RELEARN_MAX = 1;         // re-questions par mot et par séance : un mot sort au plus 2 fois
 let relearnCount  = new Map(); // mot → re-questions déjà ajoutées
 
 function newSessionKey() {
@@ -5613,6 +5647,11 @@ function beginSession(kind, queue) {
   sessionKind = kind;
   sessionKey  = newSessionKey();
   sessionStartTime = Date.now();
+  sessionHiddenMs = 0;
+  sessionHiddenSince = document.hidden ? Date.now() : null;
+  sessionClosed = false;
+  lastPostPromise = null;
+  sessionMasteredAtStart = countMastered();
   quizQueue = queue;
   quizIndex = 0;
   ['quiz-setup', 'quiz-summary', 'quiz-review'].forEach(id => {
@@ -6016,9 +6055,11 @@ function finishItem(item, r) {
   queueRelearn(item, r, grade);
 }
 
-/* Re-question : un mot raté (ou passé) revient 3 à 5 questions plus loin, un mot
-   découvert 2 à 3 plus loin, jusqu'à une réussite — trois fois au plus. Hors
-   score et sans effet sur l'espacement : seule la note du premier essai compte. */
+/* Re-question : un mot raté (ou passé) revient une fois, 3 à 5 questions plus
+   loin ; un mot découvert, une fois, 2 à 3 plus loin. Jamais plus : un mot sort
+   au plus deux fois dans une séance (demande de Simon — trois reprises, c'était
+   trop). Hors score et sans effet sur l'espacement : seule la note du premier
+   essai compte. */
 function queueRelearn(item, r, grade) {
   if (sessionKind === 'challenge' || !item.word) return;
   const firstTry = !item.relearn;
@@ -6316,14 +6357,15 @@ function drawDonut(canvasId, segments) {
 ═══════════════════════════════════════════════════════════ */
 
 function endSession() {
-  const durationSec = sessionStartTime
-    ? Math.round((Date.now() - sessionStartTime) / 1000)
-    : 0;
+  // Durée provisoire, jusqu'à la dernière réponse : complétée à l'écran de
+  // résultats (review comprise) par finalizeSessionDuration()
+  const durationSec = sessionElapsedSec();
   const total   = sessionAnswers.length;
   const correct = sessionAnswers.filter(a => a.correct).length;
   const sessionWordIds = sessionAnswers.map(a => a.word.id);
   saveQuizSession(total, correct, durationSec, sessionKind);
-  postMultiSession(correct, total, durationSec, 'vocab',
+  lastSessionStats = { durationSec, correct, total };
+  lastPostPromise = postMultiSession(correct, total, durationSec, 'vocab',
     sessionKind === 'daily' ? 'daily' : (quizFilter || 'all'),
     sessionKind === 'daily' ? 'auto'  : (quizMode || 'auto'), sessionWordIds);
 
@@ -6608,7 +6650,138 @@ document.getElementById('review-btn-prev').addEventListener('click', () => {
   if (reviewIndex > 0) { reviewIndex--; showReviewItem(); }
 });
 
+/* ── Statistiques clés après chaque quiz ──────────────────────────────
+   Temps passé et taux de réussite, aujourd'hui (jour local) et depuis le
+   début, sur toutes les séances de vocabulaire de quiz_sessions — tous
+   appareils, Jarvis compris. La séance qui vient de finir est ajoutée à la
+   main : son insertion peut encore être en vol. Hors ligne, repli sur le
+   journal local de l'appareil. Mots maîtrisés : le statut « mastered » de
+   l'onglet Progress (≥ 80 % sur les dernières réponses, 3 essais au moins). */
+let sessionMasteredAtStart = 0;
+let lastSessionStats = null;   // { durationSec, correct, total } de la séance qui vient de finir
+
+/* ── Durée d'une séance : du clic sur Start à l'écran de résultats (review
+   comprise), moins le temps où la page était masquée — onglet en arrière-plan,
+   téléphone verrouillé, iframe Jarvis cachée : pendant ce temps-là, on n'est
+   pas sur le quiz. La séance est postée à la dernière réponse avec la durée
+   d'alors, puis complétée en base quand les résultats s'affichent. */
+let sessionHiddenMs    = 0;
+let sessionHiddenSince = null;   // début de la période masquée en cours
+let sessionClosed      = true;   // résultats affichés : le chrono est arrêté
+let lastPostPromise    = null;   // insertion quiz_sessions en vol → id de la ligne
+
+document.addEventListener('visibilitychange', () => {
+  if (sessionClosed) return;
+  if (document.hidden) {
+    if (sessionHiddenSince === null) sessionHiddenSince = Date.now();
+  } else if (sessionHiddenSince !== null) {
+    sessionHiddenMs += Date.now() - sessionHiddenSince;
+    sessionHiddenSince = null;
+  }
+});
+
+function sessionElapsedSec(now = Date.now()) {
+  if (!sessionStartTime) return 0;
+  const hidden = sessionHiddenMs + (sessionHiddenSince !== null ? now - sessionHiddenSince : 0);
+  return Math.max(0, Math.round((now - sessionStartTime - hidden) / 1000));
+}
+
+/* Arrête le chrono à l'écran de résultats et complète la durée : en mémoire,
+   dans le journal local et sur la ligne quiz_sessions déjà postée. */
+function finalizeSessionDuration() {
+  if (sessionClosed) return lastSessionStats ? lastSessionStats.durationSec : 0;
+  const sec = sessionElapsedSec();
+  sessionClosed = true;
+  if (!lastSessionStats) return sec;
+  const posted = lastSessionStats.durationSec;
+  lastSessionStats.durationSec = sec;
+  if (sec <= posted) return sec;
+  try {
+    const log = getQuizLog();
+    if (log.length) {
+      log[log.length - 1].durationSec = sec;
+      localStorage.setItem('lazypo_quiz_log', JSON.stringify(log));
+    }
+  } catch (_) {}
+  const pending = lastPostPromise;
+  if (pending && currentUser) {
+    pending.then(id => id && window.sb.from('quiz_sessions')
+      .update({ duration_sec: sec }).eq('id', id).eq('user_id', currentUser.id)
+      .then(() => {}, () => {}));
+  }
+  return sec;
+}
+
+function countMastered() {
+  return vocab.filter(w => getWordStatus(w.id) === 'mastered').length;
+}
+
+async function fetchVocabSessionsBefore(startMs) {
+  if (!currentUser || !window.sb) throw new Error('no session');
+  const before = new Date(startMs || Date.now()).toISOString();
+  const PAGE = 1000;
+  let rows = [], from = 0;
+  while (true) {
+    const { data, error } = await window.sb.from('quiz_sessions')
+      .select('created_at, score, total, duration_sec')
+      .eq('user_id', currentUser.id)
+      .eq('mode', 'vocab')
+      .lt('created_at', before)
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    rows = rows.concat(data || []);
+    if (!data || data.length < PAGE) return rows;
+    from += PAGE;
+  }
+}
+
+async function renderKeyStats() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  const pct = (c, t) => t ? Math.round(c / t * 100) + '%' : '—';
+
+  const mastered = countMastered();
+  const delta    = mastered - sessionMasteredAtStart;
+  set('ks-mastered', mastered);
+  set('ks-mastered-delta', delta > 0 ? `(+${delta} this session)` : delta < 0 ? `(−${-delta} this session)` : '');
+  document.getElementById('ks-mastered-delta')?.classList.toggle('neg', delta < 0);
+  ['ks-time-today', 'ks-time-all', 'ks-rate-today', 'ks-rate-all'].forEach(id => set(id, '…'));
+  set('ks-note', '');
+
+  const zero = { sec: 0, c: 0, t: 0 };
+  let today, all, note = '';
+  try {
+    const rows = await fetchVocabSessionsBefore(sessionStartTime);
+    const cur  = lastSessionStats || { durationSec: 0, correct: 0, total: 0 };
+    const add  = (a, r) => ({ sec: a.sec + (r.duration_sec || 0), c: a.c + (r.score || 0), t: a.t + (r.total || 0) });
+    const base = { sec: cur.durationSec, c: cur.correct, t: cur.total };
+    const midnight = localMidnight();
+    all   = rows.reduce(add, base);
+    today = rows.filter(r => new Date(r.created_at).getTime() >= midnight).reduce(add, base);
+  } catch (_) {
+    // Hors ligne : le journal local (la séance qui vient de finir y est déjà)
+    const log = getQuizLog();
+    const add = (a, e) => ({ sec: a.sec + (e.durationSec || 0), c: a.c + (e.correct || 0), t: a.t + (e.words || 0) });
+    all   = log.reduce(add, zero);
+    today = log.filter(e => e.date === _today()).reduce(add, zero);
+    note  = 'Offline — totals from this device only.';
+  }
+
+  set('ks-time-today', fmtTime(today.sec));
+  set('ks-time-all',   fmtTime(all.sec));
+  set('ks-rate-today', pct(today.c, today.t));
+  set('ks-rate-all',   pct(all.c, all.t));
+  if (today.t && all.t) {
+    const diff = Math.round((today.c / today.t - all.c / all.t) * 100);
+    note += (note ? ' ' : '') + (diff > 0 ? `Today: ${diff} pts above your overall rate.`
+      : diff < 0 ? `Today: ${-diff} pts below your overall rate.` : 'Today: right on your overall rate.');
+  }
+  set('ks-note', note);
+}
+
 function showSummary() {
+  // Le chrono s'arrête ici, avant tout calcul de statistiques
+  const sessionSec = finalizeSessionDuration();
   document.getElementById('quiz-active').style.display  = 'none';
   document.getElementById('quiz-summary').style.display = 'block';
 
@@ -6634,6 +6807,7 @@ function showSummary() {
   if (nNew) notes.push(`🆕 ${nNew} new word${nNew > 1 ? 's' : ''} discovered`);
   if (nRe)  notes.push(`↻ ${nRe} re-ask${nRe > 1 ? 's' : ''} to anchor missed or new words`);
   document.getElementById('summary-notes').innerHTML = notes.map(escHtml).join('<br>');
+  renderKeyStats();   // temps et réussite viennent de la base : rendu asynchrone
 
   // Série arrêtée avant la fin : le dire, sinon « 30 / 37 » laisse croire à une
   // série de 37. Arrêtée après la dernière réponse, elle est complète : rien à dire.
@@ -6687,7 +6861,7 @@ function showSummary() {
 
   // Session footer stats
   const sfStreak = computeStreak();
-  const sfDur    = sessionStartTime ? Math.round((Date.now() - sessionStartTime) / 1000) : 0;
+  const sfDur    = sessionSec;   // du Start à cet écran, review comprise, page masquée exclue
   const sfTotal  = Object.values(progress).reduce((s, p) => s + (p.attempts || 0), 0);
   document.getElementById('sf-streak').textContent = `🔥 ${sfStreak}`;
   document.getElementById('sf-time').textContent   = fmtTime(sfDur);
@@ -7868,17 +8042,18 @@ async function postMultiSession(score, total, durationSec, mode, lang, direction
   if (!currentUser || !window.sb) return;
   const name = await getMultiDisplayName();
   try {
-    await window.sb.from('quiz_sessions').insert({
+    const { data } = await window.sb.from('quiz_sessions').insert({
       user_id: currentUser.id,
       display_name: name,
       avatar_url: multiAvatarUrl || null,
       score, total, duration_sec: durationSec, mode, lang,
       direction: direction || 'auto',
       word_ids: wordIds.length > 0 ? wordIds : null,
-    });
+    }).select('id').single();
     multiLoaded = false;
     xpScheduleReconciliation(); // trigger XP after session posted
-  } catch(e) { console.warn('postMultiSession:', e.message); }
+    return data ? data.id : null;   // pour compléter la durée à l'écran de résultats
+  } catch(e) { console.warn('postMultiSession:', e.message); return null; }
 }
 
 /* ── Init (called when tab is opened) ── */

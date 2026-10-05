@@ -159,10 +159,11 @@ facilité −0,15 · Bien → × facilité, qui remonte de 0,15 tant qu'elle est
 réellement écoulé, jamais moins que l'intervalle actuel — un mot à 8 jours revu le lendemain reste à
 8 jours au lieu de passer à 20.
 
-**Re-questions** (`queueRelearn()`) : un mot raté ou passé revient 3 à 5 questions plus loin, un mot
-découvert 2 à 3 plus loin, jusqu'à une réussite (3 fois au plus par séance). Hors score, sans effet
-sur l'espacement — seule la note du premier essai compte — mais journalisées (`is_relearn`). Pas de
-re-question en Challenge Back : un défi reste un test.
+**Re-questions** (`queueRelearn()`, `RELEARN_MAX = 1`) : un mot raté ou passé revient **une fois**,
+3 à 5 questions plus loin ; un mot découvert, une fois, 2 à 3 plus loin. Un mot sort donc **au plus
+deux fois** dans une séance — jusqu'à trois reprises au départ, jugées trop répétitives. Hors score,
+sans effet sur l'espacement — seule la note du premier essai compte — mais journalisées
+(`is_relearn`). Pas de re-question en Challenge Back : un défi reste un test.
 
 **Sangsue** (`srsIsLeech()`) : 4 oublis ou plus (`lapses`) et moins de 50 % de réussite (fenêtre
 `recent` si dispo) — un mot redevenu solide en sort de lui-même par la fenêtre glissante.
@@ -319,7 +320,22 @@ Entraînement libre : paire de langue → direction → filtres (système, raté
 > le temps passé masqué est rendu à l'échéance. Sans ça, l'échéance en temps réel ferait expirer la
 > question dès le retour sur l'onglet : regarder ailleurs coûterait la question.
 
-**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, re-questions) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
+**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, re-questions, **statistiques clés**) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
+
+> **Statistiques clés du résumé** (`renderKeyStats()`, bloc « Your stats ») — temps passé et taux de
+> réussite **aujourd'hui** (jour local) et **depuis le début**, plus le nombre de **mots maîtrisés**
+> (statut `mastered` de l'onglet Progress : ≥ 80 % sur les dernières réponses, 3 essais au moins) et
+> ce que la séance vient d'y ajouter. Temps et réussite viennent de toutes les séances de vocabulaire
+> de `quiz_sessions` (tous appareils, Jarvis compris, Challenge Back compris) ; la séance qui vient de
+> finir est ajoutée à la main, son insertion pouvant être encore en vol. Hors ligne : repli sur
+> `lazypo_quiz_log`, avec la mention « this device only ».
+>
+> **Durée d'une séance** (`sessionElapsedSec()`, `finalizeSessionDuration()`) : du clic sur Start à
+> l'écran de résultats, **review comprise**, moins le temps où la page était masquée (onglet en
+> arrière-plan, téléphone verrouillé, iframe Jarvis cachée). La séance est postée à la dernière
+> réponse avec la durée d'alors (`postMultiSession()` renvoie l'id de la ligne), puis `duration_sec`
+> est complétée en base à l'affichage des résultats (policy `quiz_sessions_update_own`). Avant octobre
+> 2026, la durée s'arrêtait à la dernière réponse : la review n'était pas comptée.
 
 > **Arrêter une série en cours** — bouton **⏹ Stop** en bas à droite de `#quiz-active`, à l'écart
 > de Check / Skip. Pour une série de 200 qu'il faut interrompre : la session se termine sur les
