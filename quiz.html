@@ -5486,6 +5486,55 @@ function buildClozeItem(word) {
   return null;
 }
 
+/* Phrase d'exemple avec le mot caché : le contexte d'une question en production
+   (FR → NL) sans souffler la réponse. Toutes les occurrences sont cachées, avec
+   ou sans article, ou sous une forme fléchie proche (fietsen → fiets, werken →
+   werkt). null quand on ne sait pas cacher le mot à coup sûr — un verbe
+   irrégulier conjugué, par exemple : mieux vaut pas de phrase qu'une phrase qui
+   donne la réponse. */
+function maskedExample(word) {
+  const ex = (word.example_sentence || '').trim();
+  if (!ex) return null;
+  const BLANK = '_____';
+  const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forms = [...new Set(String(word.source_word || '').split(/\s*\/\s*/)
+    .flatMap(f => [f.trim(), stripArticles(f.trim())])
+    .filter(f => f.length >= 2))]
+    .sort((a, b) => b.length - a.length);   // « de fiets » avant « fiets »
+
+  // 1. La forme telle quelle, comme mot entier
+  for (const f of forms) {
+    const pattern = `(?<!\\p{L})${esc(f)}(?!\\p{L})`;
+    if (new RegExp(pattern, 'iu').test(ex)) return ex.replace(new RegExp(pattern, 'giu'), BLANK);
+  }
+
+  // 2. Une forme fléchie proche. Mot d'au moins 5 lettres : le même début (4
+  //    lettres au moins, presque tout le mot pour un mot long) ou une à deux
+  //    lettres d'écart. Mot plus court : seulement une terminaison courante
+  //    (boek → boeken, kat → katten) — sinon « kat » cacherait « katoen ».
+  const single = forms.filter(f => !/\s/.test(f)).map(f => f.toLowerCase());
+  const long   = single.filter(f => f.length >= 5);
+  const short  = single.filter(f => f.length >= 3 && f.length < 5);
+  if (!long.length && !short.length) return null;
+  const SUFFIXES = ['en', 's', 'e', 'je', 'tje', 'pje', 'etje', 'er', 'ste'];
+  const inflected = (t, b) => t.startsWith(b) && (SUFFIXES.includes(t.slice(b.length))
+    || (t[b.length] === b[b.length - 1] && SUFFIXES.includes(t.slice(b.length + 1))));
+  let hit = false;
+  const masked = ex.replace(/\p{L}+/gu, tok => {
+    const t = tok.toLowerCase();
+    const close = t.length >= 3 && (short.some(b => inflected(t, b)) || long.some(b => {
+      let p = 0;
+      while (p < t.length && p < b.length && t[p] === b[p]) p++;
+      return p >= Math.max(4, b.length - 3) || levenshtein(t, b) <= (b.length >= 6 ? 2 : 1);
+    }));
+    if (close) hit = true;
+    return close ? BLANK : tok;
+  });
+  // L'article collé à une forme fléchie part avec elle : un diminutif prend
+  // toujours « het » (het fietsje), il tromperait sur le genre de « de fiets »
+  return hit ? masked.replace(/(?<!\p{L})(de|het)\s+_____/giu, BLANK) : null;
+}
+
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -5654,9 +5703,11 @@ function showQuestion() {
   } else {
     questionEl.textContent = item.question;
     questionEl.style.fontSize = '';
-    // La phrase d'exemple seulement quand on demande la traduction : en
-    // production, elle contient la réponse
-    exampleEl.textContent = item.word.example_sentence && dir === 'forward' ? item.word.example_sentence : '';
+    // Réception : la phrase telle quelle. Production : la phrase avec le mot
+    // caché, pour le voir en contexte sans avoir la réponse sous les yeux
+    exampleEl.textContent = !item.word.example_sentence ? ''
+      : dir === 'forward' ? item.word.example_sentence
+      : (maskedExample(item.word) || '');
   }
 
   // Tip / indice — toujours affiché par défaut quand il existe
