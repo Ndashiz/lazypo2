@@ -155,6 +155,17 @@
         "/Users/ndashiz/Documents/ndashiz.github.io"
       ],
       "port": 3100
+    },
+    {
+      "name": "lagoffinerie-site",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "serve",
+        "-l",
+        "3110",
+        "/Users/ndashiz/Documents/lagoffinerie"
+      ],
+      "port": 3110
     }
   ]
 }
