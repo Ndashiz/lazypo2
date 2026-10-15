@@ -1,0 +1,24 @@
+# ~/.cloudflared/config.yml — a NAMED Cloudflare tunnel, so the URL never changes.
+#
+#   brew install cloudflared
+#   cloudflared tunnel login                                   # opens the browser, pick ndashiz.be
+#   cloudflared tunnel create lazypo-mcp                       # prints the tunnel UUID
+#   cloudflared tunnel route dns lazypo-mcp lazypo-mcp.ndashiz.be
+#   cp mcp/tunnel/cloudflared.example.yml ~/.cloudflared/config.yml   # then fill in the UUID below
+#   cloudflared tunnel run lazypo-mcp                          # or: sudo cloudflared service install
+#
+# Only /mcp and /health go through. The Host header is rewritten to the
+# loopback form, so the server's Host check needs no public hostname at all.
+# Cloudflare sets CF-Connecting-IP to the caller (Anthropic) for the provenance check.
+
+tunnel: <TUNNEL-UUID>
+credentials-file: /Users/ndashiz/.cloudflared/<TUNNEL-UUID>.json
+
+ingress:
+  - hostname: lazypo-mcp.ndashiz.be
+    path: ^/(mcp|health)$
+    service: http://127.0.0.1:8787
+    originRequest:
+      httpHostHeader: 127.0.0.1:8787
+      noTLSVerify: false
+  - service: http_status:404

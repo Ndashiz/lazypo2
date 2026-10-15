@@ -5,3 +5,6 @@ worker/.wrangler/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# MCP voice server — dependencies are installed locally, never committed
+mcp/node_modules/

@@ -56,6 +56,7 @@ Tool to ease my life as a PO.
   - [★ Dernières modifs](docs/architecture.html#changelog) — hand-written changelog
 - [`KNOWLEDGE_QUIZ.md`](KNOWLEDGE_QUIZ.md) — deep dive on the quiz module (SRS, XP, multi, grammar, embed)
 - [`worker/README.md`](worker/README.md) — Worker deployment instructions
+- [`mcp/README.md`](mcp/README.md) — LazyPO by voice: the MCP server behind the Claude app connector (tools, guard, tunnel)
 - [`CLAUDE.md`](CLAUDE.md) — conventions and invariants for agent sessions
 
 ## Repo layout
@@ -85,6 +86,12 @@ Tool to ease my life as a PO.
 ├── worker/             # Cloudflare Worker (auth gate)
 │   ├── src/worker.js
 │   ├── wrangler.toml
+│   └── README.md
+│
+├── mcp/                # MCP server for the Claude app connector (voice) — Node, own package.json
+│   ├── server.mjs      #   127.0.0.1:8787 — /mcp, /health, local drafts page
+│   ├── lib/            #   guard, tools, SRS/pi.js loaders, Supabase session
+│   ├── setup.mjs · login.mjs · token.mjs
 │   └── README.md
 │
 ├── docs/
@@ -127,6 +134,8 @@ Sidebar-only entries with no page of their own:
 - **Minute Hub** (`minutehub`) — placeholder, shows the "coming soon" popup
 - **Focus FM** (`focusfm`) — a drawer injected by `focusfm.js`, not a page
 - **Documentation** — admin-only link to `docs/architecture.html`
+
+**By voice** — `mcp/` exposes the quiz (a series by ear), « le point » and the PI to the Claude app through a custom MCP connector; what the voice channel may write is refused by code ([`mcp/README.md`](mcp/README.md)).
 
 Gateable modules (`profiles.allowed_modules`): `scope`, `sprint`, `jira`, `livenote`, `minutehub`, `focusfm`. `quiz` is granted to every new user by default.
 

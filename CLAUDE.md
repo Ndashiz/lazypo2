@@ -194,3 +194,28 @@ don't hand-edit that block, it gets overwritten on every push to `main`.
 - Figure numbers in `docs/architecture.html` have pre-existing duplicates
   (two Fig. 9, two Fig. 10, two Fig. 12). They're never cross-referenced in
   prose, so it's cosmetic.
+
+## The voice channel (`mcp/`) — it runs `quiz.html` and `pi.js` under Node
+
+`mcp/server.mjs` is the MCP server the Claude app's custom connector calls (voice mode on
+the phone): the Dutch quiz by ear, « le point », the PI. Node, no build, its own
+`package.json` (deps in `mcp/node_modules`, git-ignored). It never goes through the Worker
+or `/lazypo2/`: it listens on `127.0.0.1:8787` and is reached through a **named** Cloudflare
+tunnel (`lazypo-mcp.ndashiz.be`). Setup and guard in `mcp/README.md`; the traps:
+
+1. **It executes `quiz.html`'s `SRS-PURE-BEGIN … SRS-PURE-END` block and `pi.js` verbatim.**
+   Don't move the markers, don't put DOM/network code between them, and don't touch a new
+   browser global at load time in `pi.js` — only `window`, `document`, `localStorage` and
+   `CustomEvent` are shimmed. `cd mcp && npm test` catches both.
+2. **Tool descriptions (`mcp/lib/tools.mjs`) are the program.** A wrong tool choice by the
+   model is fixed in the text, not the code. A property shared by two tools is written on
+   both; every tool that acts describes the state after the gesture in its result.
+3. **What voice may write is refused by code, never by a sentence**: grades only for a
+   series this server composed (< 12 h, not yet graded, first attempt of the day), dictated
+   words as drafts (`~/.config/lazypo-mcp/drafts.json`, validated on
+   `http://127.0.0.1:8787/`), the « Étudier plus tard » flag. Adding a write means adding
+   its refusal first.
+4. **The token lives in one file and only `node mcp/token.mjs` prints it.** No banner, no
+   log. Every refusal on `/mcp` is a bare 404; `GET`/`DELETE /mcp` are 405 (stateless).
+5. **Connector auth can't be edited in the Claude app**: a new tunnel URL or a rotated
+   token (`node mcp/setup.mjs --rotate`) means deleting and recreating the connector.

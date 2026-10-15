@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Start the LazyPO MCP server at login and keep it alive.
+
+    cp mcp/launchd/be.ndashiz.lazypo-mcp.plist.example ~/Library/LaunchAgents/be.ndashiz.lazypo-mcp.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/be.ndashiz.lazypo-mcp.plist
+    launchctl kickstart -k gui/$(id -u)/be.ndashiz.lazypo-mcp      # restart after a git pull
+
+  Logs: ~/Library/Logs/lazypo-mcp.log — the token is never written there.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>be.ndashiz.lazypo-mcp</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/ndashiz/Documents/lazypo/mcp/server.mjs</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/ndashiz/Documents/lazypo/mcp</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/ndashiz/Library/Logs/lazypo-mcp.log</string>
+  <key>StandardErrorPath</key><string>/Users/ndashiz/Library/Logs/lazypo-mcp.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

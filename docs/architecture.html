@@ -2448,6 +2448,22 @@ graph TB
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
 
+    <h3>Octobre 2026 — 🎙️ LazyPO à la voix : un connecteur MCP pour l'app Claude</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Nouveau dossier <code>mcp/</code> : serveur MCP Node (sans build) sur <code>127.0.0.1:8787</code>, joint par un
+          tunnel Cloudflare nommé, appelé par un connecteur personnalisé de l'app Claude — le quiz néerlandais à l'oral,
+          « le point », le PI. Sept outils : quatre qui nourrissent (<code>lazypo_point</code>, <code>lazypo_serie</code>,
+          <code>lazypo_mot</code>, <code>lazypo_pi</code>), trois qui agissent (<code>lazypo_resultats</code>,
+          <code>lazypo_ajouter_mot</code>, <code>lazypo_marquer_mot</code>). Une série = deux appels.</li>
+      <li>Le serveur exécute sous Node le bloc <code>SRS-PURE</code> de <code>quiz.html</code> et <code>pi.js</code> tels quels :
+          aucune copie du moteur. Garde dans l'ordre : plages IP sortantes d'Anthropic → jeton en temps constant
+          (n'importe quel en-tête) → <code>Host</code> → 60 appels/min ; tout refus = 404 nu, <code>GET /mcp</code> = 405.</li>
+      <li>Ce que la voix peut écrire est refusé par le code, pas par une consigne : les notes d'une série que le serveur
+          a lui-même composée (premier essai du jour, <code>quiz_answers.mode = 'voice'</code>), les mots dictés en
+          <strong>brouillon</strong> validés sur une page locale du Mac, le flag « Étudier plus tard ». Session Supabase
+          personnelle (<code>mcp/login.mjs</code>), RLS inchangée, pas de clé service.</li>
+    </ul>
+
     <h3>Octobre 2026 — 📊 Quiz : statistiques clés après chaque quiz</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">
       <li>Bloc « Your stats » sur le résumé : temps passé et taux de réussite aujourd'hui et depuis le début (toutes les
