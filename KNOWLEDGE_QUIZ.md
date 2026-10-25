@@ -472,8 +472,10 @@ Pour le mot qui n'a rien à faire dans la liste (doublon, faute d'import, mot in
 
 ### Retrouver un mot flaggé
 
-Un badge 🚩 s'affiche sur la ligne dans l'onglet Vocabulary (titre « Étudier plus tard »), et la
-pilule **🚩 Étudier plus tard** filtre la liste — l'impression suit le même filtre. Sans ça le flag
+Dans l'onglet Vocabulary, la ligne d'un mot flaggé est **surlignée** à l'ambre du 🚩 (`tr.row-flagged` :
+teinte sur toute la ligne, filet à gauche ; la colonne Actions, collante, garde un fond opaque sous la teinte),
+un badge 🚩 suit le mot (titre « Étudier plus tard »), et la pilule **🚩 Étudier plus tard** filtre la liste —
+l'impression suit le même filtre. Sans ça le flag
 serait un trou noir : posé une fois, jamais revu.
 
 Dans la review, le bouton affiche **🚩 Flagged** quand le mot est dans la liste ; un clic l'en
