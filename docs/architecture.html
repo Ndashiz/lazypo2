@@ -2448,6 +2448,14 @@ graph TB
 
     <p>Changements significatifs des dernières releases — pour le détail complet voir <code>git log</code> ou les PR mergées sur <code>main</code>.</p>
 
+    <h3>Octobre 2026 — ☝️ Quiz : un mot une seule fois par série</h3>
+    <ul style="padding-left: 24px; margin-bottom: 18px;">
+      <li>Plus de re-question dans la séance : un mot raté, passé ou nouveau affiche sa fiche puis revient le lendemain.</li>
+      <li>Deux fiches du même mot (la sienne et celle de la liste système, ou un doublon d'import) ne sortent plus ensemble :
+          <code>srsWordKey()</code> dédoublonne la séance du jour — donc aussi les séries vocales —, l'entraînement libre et le Challenge Back.</li>
+      <li>KPI « nouveaux mots retrouvés » : mesuré au rappel du lendemain, plus sur les re-questions.</li>
+    </ul>
+
     <h3>Octobre 2026 — 🎙️ LazyPO à la voix : un connecteur MCP pour l'app Claude</h3>
     <ul style="padding-left: 24px; margin-bottom: 18px;">
       <li>Nouveau dossier <code>mcp/</code> : serveur MCP Node (sans build) sur <code>127.0.0.1:8787</code>, joint par un

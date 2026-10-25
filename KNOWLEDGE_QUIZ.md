@@ -29,7 +29,7 @@ Dépendances chargées par `quiz.html` : `session.js`, `demo.js`, `vocab_import_
 
 Le Knowledge Quiz est un entraîneur bilingue avec **5 onglets** dans `quiz.html` :
 
-1. **🧠 Quiz** — **séance du jour** composée par le moteur d'apprentissage (parcours de chaque mot, re-questions, régulateur du nombre de nouveaux mots), ou **entraînement libre** réglé à la main (§4, §5).
+1. **🧠 Quiz** — **séance du jour** composée par le moteur d'apprentissage (parcours de chaque mot, un mot une seule fois par série, régulateur du nombre de nouveaux mots), ou **entraînement libre** réglé à la main (§4, §5).
 2. **📚 Vocabulary** — gestion du vocabulaire perso + mots système, import/export Excel.
 3. **📊 Progress** — stats, heatmap, graphiques, détail XP.
 4. **🌍 Multi** — fil social, classement, Challenge Back, réactions.
@@ -64,7 +64,7 @@ Caractéristiques clés : répétition espacée à étapes (réception puis prod
 - unique `(user_id, word_id)`, RLS `own_progress`
 
 **`quiz_answers`** — journal des réponses (migration `quiz_srs_v2.sql`)
-- Une ligne par réponse, re-questions comprises : `word_id`, `session_key`, `mode` (`daily` | `free` | `challenge` ; `atelier` sur les lignes d'avant son retrait), `answered_at`, `direction`, `stage` (avant la réponse), `grade` (1 raté · 2 difficile · 3 bien · 4 facile ; null pour une re-question), `correct`, `close_match`, `first_key_ms`, `total_ms`, `is_new`, `is_relearn`, `is_leech`, `was_due`, `elapsed_days`, `interval_before`, `interval_after`
+- Une ligne par réponse (`is_relearn` = re-question, sur les lignes d'avant leur retrait) : `word_id`, `session_key`, `mode` (`daily` | `free` | `challenge` ; `atelier` sur les lignes d'avant son retrait), `answered_at`, `direction`, `stage` (avant la réponse), `grade` (1 raté · 2 difficile · 3 bien · 4 facile ; null pour une re-question), `correct`, `close_match`, `first_key_ms`, `total_ms`, `is_new`, `is_relearn`, `is_leech`, `was_due`, `elapsed_days`, `interval_before`, `interval_after`
 - Source des KPI et du régulateur (§5). RLS `own_answers`, index `(user_id, answered_at desc)`
 
 **`quiz_settings`** — réglages du moteur (migration `quiz_srs_v2.sql`)
@@ -159,11 +159,13 @@ facilité −0,15 · Bien → × facilité, qui remonte de 0,15 tant qu'elle est
 réellement écoulé, jamais moins que l'intervalle actuel — un mot à 8 jours revu le lendemain reste à
 8 jours au lieu de passer à 20.
 
-**Re-questions** (`queueRelearn()`, `RELEARN_MAX = 1`) : un mot raté ou passé revient **une fois**,
-3 à 5 questions plus loin ; un mot découvert, une fois, 2 à 3 plus loin. Un mot sort donc **au plus
-deux fois** dans une séance — jusqu'à trois reprises au départ, jugées trop répétitives. Hors score,
-sans effet sur l'espacement — seule la note du premier essai compte — mais journalisées
-(`is_relearn`). Pas de re-question en Challenge Back : un défi reste un test.
+**Un mot une seule fois par série.** Plus de re-question dans la séance : un mot raté, passé ou
+nouveau affiche sa fiche, puis revient le lendemain (intervalle d'un jour). Les re-questions (jusqu'à
+trois, puis une) ont été retirées à la demande de Simon : trop répétitif. Et deux fiches du même mot
+— la tienne et celle de la liste système, ou un doublon d'import — ne sortent plus ensemble :
+`srsWordKey()` (mot source sans article, sans accents, sans casse, par langue) dédoublonne la séance
+du jour (`srsComposeDaily()`, donc aussi les séries du canal vocal), l'entraînement libre et le
+Challenge Back.
 
 **Sangsue** (`srsIsLeech()`) : 4 oublis ou plus (`lapses`) et moins de 50 % de réussite (fenêtre
 `recent` si dispo) — un mot redevenu solide en sort de lui-même par la fenêtre glissante.
@@ -192,7 +194,7 @@ sur les 7 derniers jours du journal, stocké dans `quiz_settings` :
 | Rétention à l'échéance (1er essai des révisions dues) | ≥ 90 % et retard < 1 jour | N + 2 (max 20) |
 | | 80 à 90 % | N inchangé |
 | Rétention ou retard | < 80 %, ou retard > 2 jours | N − 3 (min 3) |
-| Nouveaux mots retrouvés au rappel | < 60 % | N − 1 |
+| Nouveaux mots retrouvés le lendemain (rappel J+1 d'un mot en apprentissage) | < 60 % | N − 1 |
 
 Sans 30 révisions dues dans le journal des 7 derniers jours, rien ne bouge (N de départ : 8). N ne
 tombe jamais à zéro : un peu de nouveauté chaque jour entretient la motivation. La raison du dernier
@@ -202,7 +204,7 @@ ajustement s'affiche dans le panneau du jour et dans l'onglet Progress.
 cible et un statut (dans la cible / à surveiller / hors cible / pas encore mesurable) : mots acquis
 (indicateur principal, + cette semaine), nouveaux mots par jour, rétention à l'échéance (avec l'écart
 sur la semaine précédente), retard en jours de travail, part de l'effort sur les sangsues, nouveaux
-mots retrouvés au rappel, tes mots en attente de 1re question (âge médian), écart réception /
+mots retrouvés le lendemain, tes mots en attente de 1re question (âge médian), écart réception /
 production, temps avant la 1re frappe. Plus le parcours : nouveaux · apprentissage · réception ·
 production · acquis.
 
@@ -306,7 +308,7 @@ Entraînement libre : paire de langue → direction → filtres (système, raté
 - **Drapeaux** (SVG inline, `flagHtml()` — sous Windows les emoji drapeaux s'affichent en lettres) : badge de direction « 🇳🇱 NL → 🇫🇷 FR », drapeau de la langue attendue dans le champ de réponse, et texte d'aide « Your answer in Dutch… ». `langPair()` lit aussi l'ancien `nl-fr` de la liste système (avant : « nl-fr → undefined »).
 - **Contexte en production** (`maskedExample()`) : quand on demande le mot (FR → NL) et qu'il a une phrase d'exemple, la phrase s'affiche sous la question avec le mot caché — « Ik ga elke dag met _____ naar mijn werk. ». Toutes les occurrences sont cachées : la forme exacte avec ou sans article, ou une forme fléchie proche (fietsen → fiets, boek → boeken, kat → katten), l'article de/het collé partant avec elle (un diminutif prend toujours « het » et tromperait sur le genre). Si le mot ne peut pas être caché à coup sûr (verbe irrégulier conjugué…), pas de phrase : mieux vaut rien qu'une phrase qui souffle la réponse.
 - **« Skip » et chrono écoulé montrent la réponse** et la fiche, puis Next — on n'avance plus à l'aveugle, et ces mots vont dans l'Error Review.
-- **Re-questions** (§5) : libellé « ↻ Re-question », compteur « 7 / 20 · ↻ » — la série affichée ne compte que les questions prévues.
+- **Un mot une seule fois par série** (§5) : pas de re-question, pas de doublon de fiche.
 - **« Précédent » en lecture seule** (`renderAnsweredState()`) : on revoit la question d'avant et sa correction ; plus jamais de second enregistrement dans `quiz_progress`.
 
 > **Le compte à rebours suit une échéance, il n'accumule pas de ticks.** Un `secs--` par tick de
@@ -320,7 +322,7 @@ Entraînement libre : paire de langue → direction → filtres (système, raté
 > le temps passé masqué est rendu à l'échéance. Sans ça, l'échéance en temps réel ferait expirer la
 > question dès le retour sur l'onglet : regarder ailleurs coûterait la question.
 
-**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, re-questions, **statistiques clés**) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
+**Fin de session** : Review des erreurs — « Skip » et chrono écoulé compris — (si présentes) → résumé (score, %, temps, badge streak, nouveaux mots découverts, **statistiques clés**) → panneau d'ajout (si Challenge Back) → auto-post au fil (sauf mode Challenge ; une séance du jour est postée avec `lang = 'daily'`). La progression n'est rechargée qu'après les écritures encore en vol (`pendingProgressWrites`).
 
 > **Statistiques clés du résumé** (`renderKeyStats()`, bloc « Your stats ») — temps passé et taux de
 > réussite **aujourd'hui** (jour local) et **depuis le début**, plus le nombre de **mots maîtrisés**
@@ -584,7 +586,7 @@ let vocabDirty = false      // mot corrigé/flaggé en review → recharger plus
 | `srsNext()` / `srsGrade()` / `srsDirection()` / `srsIsLeech()` | Moteur : état suivant d'un mot, note automatique, direction selon l'étape, sangsue — fonctions pures (§5). |
 | `srsKpis()` / `srsRegulate()` | Indicateurs de pilotage et régulateur du budget de nouveaux mots — fonctions pures (§5). |
 | `beginSession(kind, queue)` / `startDailySession()` | Démarrage d'une séance (`daily` / `free` / `challenge`). |
-| `finishItem(item, r)` / `queueRelearn()` / `revealUnanswered()` | Fin d'une question (correction, note, enregistrement), re-questions, « Skip » et chrono écoulé. |
+| `finishItem(item, r)` / `revealUnanswered()` | Fin d'une question (correction, note, enregistrement), « Skip » et chrono écoulé. |
 | `recordAnswer(word, grade, ctx)` | Premier essai d'un mot : état `srsNext()` dans `quiz_progress` + ligne de journal ; retire les colonnes que la base n'a pas. |
 | `logAnswer(row)` / `loadAnswerLog()` | Journal `quiz_answers` (28 derniers jours en mémoire). |
 | `loadSrsSettings()` / `runSrsRegulator()` | Réglages `quiz_settings` et passage quotidien du régulateur. |
