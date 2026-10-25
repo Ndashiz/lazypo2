@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<script>if(location.protocol==="http:"&&location.hostname!=="localhost"&&location.hostname!=="127.0.0.1")location.replace("https:"+location.href.slice(5));</script>
+<script src="auth-gate.js"></script>
+<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <title>LazyPO — Dépôt</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="bpmn-viewer.css">
+<script src="supabase.min.js"></script>
+<style>
+/* ── Dépôt : les documents dictés depuis le téléphone (mcp/) ──
+   Le serveur vocal dépose dans voice_docs ; cette page lit, rend (bpmn-js pour
+   le BPMN), exporte et supprime. Rien ne s'y écrit sinon la suppression. */
+:root {
+  --bg: #0f172a; --card: #1e293b; --card-border: #334155; --card-hover: #243047;
+  --text: #e2e8f0; --text-muted: #94a3b8; --text-dim: #64748b;
+  --blue: #3b82f6; --blue-light: #60a5fa; --green: #10b981; --red: #ef4444; --amber: #f59e0b;
+  --r: 10px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+.main { min-height: 100vh; }
+.page-header { padding: 32px 28px 0; }
+.page-title { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim); }
+.page-heading { font-size: 26px; font-weight: 700; margin-top: 4px; }
+.page-subheading { color: var(--text-muted); font-size: 14px; margin-top: 6px; max-width: 720px; line-height: 1.5; }
+.page-body { padding: 20px 28px 48px; }
+.layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px; align-items: start; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.doc { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--r); padding: 12px 14px; cursor: pointer; transition: background .12s, border-color .12s; }
+.doc:hover { background: var(--card-hover); }
+.doc.active { border-color: var(--blue); }
+.doc-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-meta { color: var(--text-muted); font-size: 12px; margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+.badge { display: inline-block; font-family: 'DM Mono', monospace; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--card-border); color: var(--blue-light); text-transform: uppercase; }
+.viewer { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--r); min-height: 420px; display: flex; flex-direction: column; overflow: hidden; }
+.viewer-head { display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--card-border); flex-wrap: wrap; }
+.viewer-head h2 { font-size: 16px; font-weight: 600; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; border: 1px solid var(--card-border); background: transparent; color: var(--text); cursor: pointer; font-family: inherit; white-space: nowrap; }
+.btn:hover { background: var(--card-hover); }
+.btn-primary { background: var(--blue); border-color: transparent; color: #fff; }
+.btn-danger { color: #fca5a5; }
+.btn:disabled { opacity: .45; cursor: default; }
+#canvas { flex: 1; min-height: 480px; background: #f8fafc; display: none; }
+#canvas .djs-container { height: 100%; }
+#canvas svg { font-family: Arial, sans-serif; }
+.zoom { display: none; gap: 6px; padding: 8px 14px; border-top: 1px solid var(--card-border); }
+pre.text { flex: 1; padding: 16px; font-family: 'DM Mono', monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; overflow: auto; display: none; }
+.img { flex: 1; display: none; align-items: center; justify-content: center; background: #fff; padding: 16px; }
+.img img { max-width: 100%; max-height: 70vh; }
+.empty { padding: 48px 24px; color: var(--text-muted); text-align: center; line-height: 1.6; }
+.empty code { font-family: 'DM Mono', monospace; color: var(--blue-light); }
+.notice { margin: 0 0 14px; padding: 10px 14px; border-radius: 8px; background: rgba(245,158,11,.1); border: 1px solid rgba(245,158,11,.35); color: #fcd34d; font-size: 13px; }
+.msg { font-size: 12px; color: var(--text-muted); }
+@media (max-width: 900px) {
+  .page-header { padding: 20px 16px 0; }
+  .page-body { padding: 14px 16px 32px; }
+  .layout { grid-template-columns: 1fr; }
+  .list { flex-direction: row; overflow-x: auto; padding-bottom: 4px; }
+  .doc { min-width: 220px; }
+  #canvas { min-height: 62vh; }
+}
+</style>
+</head>
+<body>
+<main class="main">
+  <div class="page-header">
+    <div class="page-title">Documents dictés</div>
+    <div class="page-heading">🎙️ Dépôt</div>
+    <div class="page-subheading">Ce que tu as dicté à Claude depuis le téléphone — BPMN, notes, schémas. Ici on lit, on exporte, on supprime. Pour modifier un BPMN : « LazyPO, reprends le diagramme… ».</div>
+  </div>
+  <div class="page-body">
+    <div id="notice" class="notice" style="display:none;"></div>
+    <div class="layout">
+      <aside class="list" id="list"><div class="empty">Chargement…</div></aside>
+      <section class="viewer" id="viewer">
+        <div class="viewer-head" id="viewer-head" style="display:none;">
+          <h2 id="v-title"></h2>
+          <span class="msg" id="v-meta"></span>
+          <button class="btn" id="btn-copy" type="button">Copier</button>
+          <button class="btn btn-primary" id="btn-download" type="button">Télécharger</button>
+          <button class="btn btn-danger" id="btn-delete" type="button">Supprimer</button>
+        </div>
+        <div class="empty" id="v-empty">Choisis un document à gauche — ou dicte-en un : « LazyPO, fais-moi un BPMN de… ».</div>
+        <div id="canvas"></div>
+        <div class="zoom" id="zoom">
+          <button class="btn" type="button" data-zoom="fit">Ajuster</button>
+          <button class="btn" type="button" data-zoom="in">+</button>
+          <button class="btn" type="button" data-zoom="out">−</button>
+          <span class="msg" id="v-warn"></span>
+        </div>
+        <pre class="text" id="text"></pre>
+        <div class="img" id="img"><img id="img-el" alt=""></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script src="sidebar.js"></script>
+<script src="auth.js"></script>
+<script src="bpmn-viewer.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var FORMAT_EXT = { bpmn: 'bpmn', md: 'md', mmd: 'mmd', txt: 'txt', sql: 'sql', json: 'json', csv: 'csv', xml: 'xml', svg: 'svg' };
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var fmtDate = function (iso) { try { return new Date(iso).toLocaleString('fr-BE', { dateStyle: 'medium', timeStyle: 'short' }); } catch (e) { return iso; } };
+  var slug = function (s) { return String(s || 'document').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'document'; };
+
+  var currentUser = null, docs = [], current = null, viewer = null;
+
+  function notice(msg) { var n = $('notice'); n.style.display = msg ? '' : 'none'; n.textContent = msg || ''; }
+
+  async function loadList() {
+    var r = await window.sb.from('voice_docs').select('id, title, format, meta, created_at, updated_at')
+      .eq('user_id', currentUser.id).order('updated_at', { ascending: false }).limit(200);
+    if (r.error) {
+      docs = [];
+      $('list').innerHTML = '<div class="empty">Impossible de lire les documents.</div>';
+      notice(/voice_docs|schema cache/i.test(r.error.message || '')
+        ? 'La table voice_docs n\'existe pas encore : lancer voice_docs_schema.sql dans Supabase. En attendant, les documents dictés restent sur le Mac.'
+        : 'Erreur : ' + r.error.message);
+      return;
+    }
+    docs = r.data || [];
+    renderList();
+  }
+
+  function renderList() {
+    if (!docs.length) { $('list').innerHTML = '<div class="empty">Aucun document pour l\'instant.<br>Dicte-en un à Claude : « LazyPO, fais-moi un BPMN de… ».</div>'; return; }
+    $('list').innerHTML = docs.map(function (d) {
+      var c = d.meta && d.meta.counts;
+      return '<div class="doc' + (current && current.id === d.id ? ' active' : '') + '" data-id="' + esc(d.id) + '">' +
+        '<div class="doc-title">' + esc(d.title) + '</div>' +
+        '<div class="doc-meta"><span class="badge">' + esc(d.format) + '</span>' + (c ? '<span>' + c.elements + ' éléments</span>' : '') + '<span>' + esc(fmtDate(d.updated_at)) + '</span></div></div>';
+    }).join('');
+  }
+
+  function hideAll() {
+    ['canvas', 'zoom', 'text', 'img', 'v-empty'].forEach(function (id) { $(id).style.display = 'none'; });
+    $('v-warn').textContent = '';
+  }
+
+  async function open(id) {
+    var r = await window.sb.from('voice_docs').select('*').eq('id', id).eq('user_id', currentUser.id).maybeSingle();
+    if (r.error || !r.data) { notice('Document introuvable.'); return; }
+    current = r.data;
+    renderList();
+    if (location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+    $('viewer-head').style.display = '';
+    $('v-title').textContent = current.title;
+    $('v-meta').textContent = current.format + ' · ' + fmtDate(current.updated_at) + ' · ' + current.content.length + ' car.';
+    hideAll();
+    if (current.format === 'bpmn') await renderBpmn(current.content);
+    else if (current.format === 'svg') {
+      $('img').style.display = 'flex';
+      $('img-el').src = URL.createObjectURL(new Blob([current.content], { type: 'image/svg+xml' }));
+    } else {
+      $('text').style.display = 'block';
+      $('text').textContent = current.content;
+    }
+  }
+
+  /* fit-viewport throws when the canvas has no size yet (hidden tab, first paint) */
+  function fit() { if (!viewer) return; try { viewer.get('canvas').zoom('fit-viewport', 'auto'); } catch (e) { /* retried on resize */ } }
+
+  async function renderBpmn(xml) {
+    $('canvas').style.display = 'block';
+    $('zoom').style.display = 'flex';
+    if (!viewer) { viewer = new BpmnJS({ container: '#canvas' }); window.addEventListener('resize', fit); }
+    try {
+      var res = await viewer.importXML(xml);
+      fit(); requestAnimationFrame(fit);
+      var warnings = (res && res.warnings) || [];
+      if (!/BPMNShape/.test(xml)) $('v-warn').textContent = 'Ce BPMN n\'a pas de mise en page : rien à dessiner, mais le fichier s\'exporte.';
+      else if (warnings.length) $('v-warn').textContent = warnings.length + ' avertissement(s) à l\'import.';
+    } catch (e) {
+      $('v-warn').textContent = 'Import impossible : ' + (e.message || e);
+    }
+  }
+
+  function download() {
+    if (!current) return;
+    var ext = FORMAT_EXT[current.format] || 'txt';
+    var blob = new Blob([current.content], { type: current.format === 'bpmn' || current.format === 'xml' ? 'application/xml' : 'text/plain' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = slug(current.title) + '.' + ext;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+
+  async function remove() {
+    if (!current || !confirm('Supprimer « ' + current.title + ' » ?')) return;
+    var r = await window.sb.from('voice_docs').delete().eq('id', current.id).eq('user_id', currentUser.id);
+    if (r.error) { notice('Suppression refusée : ' + r.error.message); return; }
+    current = null; history.replaceState(null, '', location.pathname);
+    $('viewer-head').style.display = 'none'; hideAll(); $('v-empty').style.display = '';
+    await loadList();
+  }
+
+  $('list').addEventListener('click', function (e) { var d = e.target.closest('.doc[data-id]'); if (d) open(d.dataset.id); });
+  $('btn-download').addEventListener('click', download);
+  $('btn-delete').addEventListener('click', remove);
+  $('btn-copy').addEventListener('click', function () {
+    if (!current) return;
+    navigator.clipboard.writeText(current.content).then(function () { $('v-meta').textContent = 'Copié.'; }, function () {});
+  });
+  $('zoom').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-zoom]'); if (!b || !viewer) return;
+    var canvas = viewer.get('canvas');
+    if (b.dataset.zoom === 'fit') fit();
+    else canvas.zoom(canvas.zoom() * (b.dataset.zoom === 'in' ? 1.25 : 0.8));
+  });
+  window.addEventListener('hashchange', function () { var id = location.hash.slice(1); if (id && (!current || current.id !== id)) open(id); });
+
+  document.addEventListener('DOMContentLoaded', async function () {
+    var session = await window.LazyAuth.requireAuth();
+    if (!session) return;
+    currentUser = session.user;
+    await loadList();
+    var id = location.hash.slice(1);
+    if (id) open(id);
+  });
+})();
+</script>
+</body>
+</html>

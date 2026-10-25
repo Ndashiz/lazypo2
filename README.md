@@ -128,6 +128,7 @@ Tool to ease my life as a PO.
 | `livenote.html` | livenote | Live shared notes (Supabase realtime) |
 | `livenote_editor.html` | livenote | Note editor |
 | `feedback.html` | (auth) | Feedback board — suggest, upvote, comment |
+| `depot.html` | (auth) | **Dépôt** — documents dictated by voice through `mcp/` (a BPMN drawn by the server and rendered with bpmn-js, notes, Mermaid, SQL…), read, exported and deleted here; table `voice_docs` ([`voice_docs_schema.sql`](voice_docs_schema.sql)) |
 
 Sidebar-only entries with no page of their own:
 
@@ -135,7 +136,7 @@ Sidebar-only entries with no page of their own:
 - **Focus FM** (`focusfm`) — a drawer injected by `focusfm.js`, not a page
 - **Documentation** — admin-only link to `docs/architecture.html`
 
-**By voice** — `mcp/` exposes the quiz (a series by ear), « le point » and the PI to the Claude app through a custom MCP connector; what the voice channel may write is refused by code ([`mcp/README.md`](mcp/README.md)).
+**By voice** — `mcp/` exposes the quiz (a series by ear), « le point », the PI and a drop-off for dictated documents (a BPMN is dictated as a structure, drawn by the server, read in `depot.html`) to the Claude app through a custom MCP connector; what the voice channel may write is refused by code ([`mcp/README.md`](mcp/README.md)).
 
 Gateable modules (`profiles.allowed_modules`): `scope`, `sprint`, `jira`, `livenote`, `minutehub`, `focusfm`. `quiz` is granted to every new user by default.
 
@@ -175,7 +176,7 @@ origin. This is deliberate and load-bearing:
 - the Worker CSP is `script-src 'self' 'unsafe-inline' https://sdk.scdn.co` — a CDN `<script src>` is **blocked outright**;
 - it removes the supply-chain risk of a compromised CDN injecting JS into the app.
 
-`supabase.min.js`, `xlsx.min.js`, `pptxgen.min.js`, `html2pdf.min.js`, `papaparse.min.js`, `three.min.js`, `vanta.net.min.js`, `codemirror*`, plus DM Sans / DM Mono under `fonts/` (declared in `fonts.css`).
+`supabase.min.js`, `xlsx.min.js`, `pptxgen.min.js`, `html2pdf.min.js`, `papaparse.min.js`, `three.min.js`, `vanta.net.min.js`, `codemirror*`, `bpmn-viewer.min.js` + `bpmn-viewer.css` (bpmn-js 18.31 NavigatedViewer, MIT — the bpmn.io watermark must stay visible), plus DM Sans / DM Mono under `fonts/` (declared in `fonts.css`).
 
 **Never replace a vendored lib with a CDN URL.** It has been reintroduced by merges twice already (`629f154`, `8abda52`) and breaks the page silently in prod while working fine locally, where no CSP applies. The only external script allowed is the Spotify Web Playback SDK.
 

@@ -4,7 +4,9 @@
   "private": true,
   "description": "LazyPO by voice — MCP server for the Claude app connector (Dutch quiz, PI, le point).",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.mjs",
     "setup": "node setup.mjs",
@@ -15,6 +17,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@supabase/supabase-js": "^2.117.3",
+    "bpmn-auto-layout": "^1.3.0",
     "zod": "^4.6.7"
   }
 }

@@ -2,7 +2,7 @@
 
 Talk to LazyPO from the Claude app (phone or desktop, voice mode included): the
 Dutch quiz by ear, « le point » on the day, the PI. A small Node server on the
-Mac exposes a handful of tools over MCP; a tunnel makes it reachable; the Claude
+Mac exposes ten tools over MCP; a tunnel makes it reachable; the Claude
 app calls it through a custom connector.
 
 ```
@@ -32,11 +32,15 @@ and runs them under Node, so the voice channel can never drift from the web.
 | `lazypo_resultats` | acts | Records the grades of a series: `quiz_progress` via `srsNext()`, one `quiz_answers` row per answer (`mode: 'voice'`), one `quiz_sessions` row (`lang: 'daily'` for a daily series, `'voice'` otherwise). |
 | `lazypo_ajouter_mot` | acts | A dictated word goes to a **draft** on the Mac (default) — or straight into `vocabulary` with `vocabularyWrites: "direct"`. |
 | `lazypo_marquer_mot` | acts | Puts a word into / out of « Étudier plus tard ». |
+| `lazypo_documents` | feeds | Lists the dropped documents (or one in full: a BPMN comes back as its dictated structure, ready to be changed and re-sent). |
+| `lazypo_bpmn` | acts | A process dictated as a **structure** (typed elements + flows, French type names) → BPMN 2.0 XML written by the server, laid out by `bpmn-auto-layout`, stored in `voice_docs`; the answer carries the link to `depot.html`. |
+| `lazypo_deposer_document` | acts | Drops a note (md), a Mermaid sketch (mmd), SQL, JSON, CSV, XML, SVG or text into `voice_docs`; a raw BPMN without a diagram gets one. |
 
 **What the voice channel may write — enforced by code, not by prose:**
 
 - it only grades words *it* asked: `lazypo_resultats` needs the key of a series this server composed, less than `seriesTtlHours` (12) old and not yet graded; a word absent from the series, already graded today (first attempt only, like the web), or a grade outside 1–4 is refused and named in the answer;
 - it never creates authoritative content on its own: a dictated word is a draft until you validate it on the local page (voice transcription mangles Dutch);
+- documents it authors go to the drop-off (`voice_docs`, read in `depot.html`) and nowhere else: a dictated BPMN never touches the PI, the quiz or a note someone else wrote;
 - everything else is read-only.
 
 A series is **two round trips**: `lazypo_serie` once, the questions asked by
@@ -54,6 +58,10 @@ node server.mjs                # 127.0.0.1:8787 — the banner says how to get t
 
 `node token.mjs` prints the token when you create the connector; nothing else
 ever does (no banner, no log). `node login.mjs --status` / `--logout`.
+
+For the drop-off, run `voice_docs_schema.sql` once in the Supabase SQL editor and
+push `main` so `depot.html` is live. Without the table, a dropped document stays on
+the Mac (`~/.config/lazypo-mcp/docs/`) and every answer says so.
 
 Files live in `~/.config/lazypo-mcp/` (0700): `config.json` (token, port,
 options), `session.json` (Supabase access + refresh token, 0600, refreshed on
@@ -122,6 +130,34 @@ Only `POST /mcp` reaches the MCP SDK. The local page and its `/api` answer only
 to a loopback browser with a loopback `Host` and no proxy header; its writes
 need a JSON body from this origin.
 
+## The drop-off — a BPMN from the phone
+
+```
+  "LazyPO, fais-moi un BPMN de …"
+        │ Claude restates the process, you confirm
+        ▼
+  lazypo_bpmn({ titre, elements:[{id,type,nom,voie}], flux:[{de,vers,nom}] })
+        │ docs.mjs: checkStructure → buildBpmnXml (semantics only)
+        │ bpmn-auto-layout: adds the diagram (DI)
+        ▼
+  voice_docs (title, format 'bpmn', content, meta.structure)
+        │
+        ▼
+  https://ndashiz.be/lazypo2/depot.html#<id>   ← bpmn-js NavigatedViewer, export .bpmn
+```
+
+Element types are French on purpose (the model speaks them, the guide quotes them):
+`debut · fin · tache · utilisateur · service · manuel · script · envoi · reception ·
+decision · parallele · inclusif · attente · message · evenement`. The code refuses an
+unknown type, a duplicate id, a flow to a missing element, a process without `debut`;
+it warns about an element with no way out, an unnamed branch after a decision.
+
+Known limits, inherited from `bpmn-auto-layout`: lanes (`voie`) are kept in the XML as
+a `laneSet` and as a documentation line on each task but **not drawn**; no message
+flows, no pools, sub-processes collapsed. To change a diagram, Claude reads its
+structure back (`lazypo_documents` with the id) and re-sends it whole to `lazypo_bpmn`
+with that id.
+
 ## Tests
 
 ```bash
@@ -130,7 +166,7 @@ cd mcp && npm test
 
 Node's test runner: the guard (CIDR, token, Host, ceiling, local face), the
 `SRS-PURE` extraction and `pi.js` under Node, series composition and grading
-refusals, « le point ». No network, no Supabase.
+refusals, « le point », the BPMN builder and its layout. No network, no Supabase.
 
 ## Traps
 
@@ -145,6 +181,8 @@ refusals, « le point ». No network, no Supabase.
 - **Voice sessions count in the feed and for the streak** (they are posted to
   `quiz_sessions`), but the XP reconciliation runs in the web app: XP for a
   voice-only day is credited the next time `quiz.html` opens.
+- **`bpmn-viewer.min.js` is bpmn-js under its MIT licence with one clause**: the
+  bpmn.io watermark drawn in the canvas must stay visible. Don't hide it with CSS.
 - **Missing migrations degrade, they don't break**: like the web, writes drop
   `recent` / `stage` / `lapses` / `first_tested` or the `quiz_answers` journal when
   the base says the column or table is absent.

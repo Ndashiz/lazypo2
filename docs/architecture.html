@@ -2470,6 +2470,12 @@ graph TB
           a lui-même composée (premier essai du jour, <code>quiz_answers.mode = 'voice'</code>), les mots dictés en
           <strong>brouillon</strong> validés sur une page locale du Mac, le flag « Étudier plus tard ». Session Supabase
           personnelle (<code>mcp/login.mjs</code>), RLS inchangée, pas de clé service.</li>
+      <li><strong>Le Dépôt</strong> (<code>depot.html</code>, table <code>voice_docs</code> — <code>voice_docs_schema.sql</code>) :
+          trois outils de plus (<code>lazypo_bpmn</code>, <code>lazypo_deposer_document</code>, <code>lazypo_documents</code>).
+          Un BPMN se dicte comme une <em>structure</em> (éléments typés + flux, en français) ; le serveur écrit le BPMN 2.0,
+          <code>bpmn-auto-layout</code> le met en page, la page le rend avec bpmn-js (<code>bpmn-viewer.min.js</code>, vendu)
+          et l'exporte en <code>.bpmn</code>. Notes, Mermaid, SQL, SVG… se déposent tels quels. Sans la table, le document
+          reste sur le Mac et l'outil le dit.</li>
     </ul>
 
     <h3>Octobre 2026 — 📊 Quiz : statistiques clés après chaque quiz</h3>

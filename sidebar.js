@@ -78,6 +78,13 @@
       desc: 'Build your EN/NL vocabulary with spaced repetition quizzes.'
     },
     {
+      id: 'depot',
+      icon: '🎙️',
+      label: 'Dépôt',
+      url: 'depot.html',
+      desc: 'Documents dictés depuis le téléphone (BPMN, notes, schémas) — déposés par la voix, lus ici.'
+    },
+    {
       id: 'focusfm',
       icon: '🎵',
       label: 'Focus FM',

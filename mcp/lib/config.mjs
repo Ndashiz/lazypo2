@@ -41,6 +41,8 @@ export const DEFAULTS = Object.freeze({
   /** How long a composed series stays gradable, in hours */
   seriesTtlHours: 12,
   email: '',
+  /** Where depot.html lives — the links handed to the phone */
+  appUrl: 'https://ndashiz.be/lazypo2/',
 });
 
 export function ensureDir() {
@@ -74,6 +76,7 @@ export function loadConfig() {
   cfg.publicHosts = (Array.isArray(cfg.publicHosts) ? cfg.publicHosts : []).map(h => String(h).toLowerCase());
   if (!['anthropic', 'any'].includes(cfg.provenance)) cfg.provenance = DEFAULTS.provenance;
   if (!['draft', 'direct'].includes(cfg.vocabularyWrites)) cfg.vocabularyWrites = DEFAULTS.vocabularyWrites;
+  cfg.appUrl = String(cfg.appUrl || DEFAULTS.appUrl).replace(/\/?$/, '/');
   return cfg;
 }
 

@@ -198,7 +198,9 @@ don't hand-edit that block, it gets overwritten on every push to `main`.
 ## The voice channel (`mcp/`) — it runs `quiz.html` and `pi.js` under Node
 
 `mcp/server.mjs` is the MCP server the Claude app's custom connector calls (voice mode on
-the phone): the Dutch quiz by ear, « le point », the PI. Node, no build, its own
+the phone): the Dutch quiz by ear, « le point », the PI, and a drop-off for dictated
+documents (a BPMN is dictated as a structure, drawn by the server, read in `depot.html`
+from `voice_docs` — `voice_docs_schema.sql`, run by hand). Node, no build, its own
 `package.json` (deps in `mcp/node_modules`, git-ignored). It never goes through the Worker
 or `/lazypo2/`: it listens on `127.0.0.1:8787` and is reached through a **named** Cloudflare
 tunnel (`lazypo-mcp.ndashiz.be`). Setup and guard in `mcp/README.md`; the traps:
@@ -219,3 +221,8 @@ tunnel (`lazypo-mcp.ndashiz.be`). Setup and guard in `mcp/README.md`; the traps:
    log. Every refusal on `/mcp` is a bare 404; `GET`/`DELETE /mcp` are 405 (stateless).
 5. **Connector auth can't be edited in the Claude app**: a new tunnel URL or a rotated
    token (`node mcp/setup.mjs --rotate`) means deleting and recreating the connector.
+6. **`bpmn-viewer.min.js` / `bpmn-viewer.css` are bpmn-js 18.31 (NavigatedViewer), vendored**
+   like every other lib — MIT with one clause: the bpmn.io watermark in the canvas stays
+   visible. The server never writes BPMN XML by hand from the model: `mcp/lib/docs.mjs`
+   builds it from the dictated structure and `bpmn-auto-layout` draws it; lanes are kept
+   semantically but not drawn (the layouter doesn't do pools/lanes).

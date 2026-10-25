@@ -3,8 +3,8 @@
  * documentation: it is the program. The return value is the other half.
  *
  * Two columns (keep them straight when adding a tool):
- *   NOURRIT  lazypo_point · lazypo_serie · lazypo_mot · lazypo_pi
- *   AGIT     lazypo_resultats · lazypo_ajouter_mot · lazypo_marquer_mot
+ *   NOURRIT  lazypo_point · lazypo_serie · lazypo_mot · lazypo_pi · lazypo_documents
+ *   AGIT     lazypo_resultats · lazypo_ajouter_mot · lazypo_marquer_mot · lazypo_bpmn · lazypo_deposer_document
  * Every tool that acts says what changed; every effect the model cannot
  * perceive (the local page) is named in the description AND the result.
  */
@@ -18,7 +18,8 @@ import { formatPoint } from './point.mjs';
 import { piOf, piDetail } from './pi.mjs';
 import { listDrafts, addDraft } from './drafts.mjs';
 import { rememberSeries, recallSeries, markGraded } from './series.mjs';
-import { plural } from './fmt.mjs';
+import { plural, shortDate, clock } from './fmt.mjs';
+import { FORMATS, TYPE_NAMES, makeBpmn, looksLikeBpmn, hasDiagram, layoutBpmn, saveDoc, listDocs, readDoc, docUrl, formatDocList, MAX_CONTENT } from './docs.mjs';
 
 const QUAND = "N'appeler que si l'utilisateur parle de LazyPO (la transcription vocale peut donner « lazy po », « lazy peau », « lazipo », « lézipo »), de son quiz ou vocabulaire néerlandais, ou de son PI. ";
 
@@ -164,6 +165,94 @@ export function registerTools(server, ctx) {
     const id = await insertWord(sb, user.id, { mot, traduction, exemple, astuce, infos });
     return `Ajouté au vocabulaire : « ${mot} » → « ${traduction} »${exemple ? ` · exemple : « ${exemple} »` : ''}${astuce ? ` · astuce : ${astuce}` : ''}${infos ? ` · infos : ${infos}` : ''} (id ${id}). ` +
       `Il sortira comme mot nouveau dans une prochaine série. Vocabulaire : ${plural(data.words.length + 1, 'mot')}.` + noArticle;
+  }));
+
+  /* ── LE DÉPÔT : documents dictés ─────────────────────────────── */
+  const LOCAL_ONLY = " ATTENTION : la table voice_docs n'existe pas encore, le document est gardé sur le Mac seulement (lancer voice_docs_schema.sql dans Supabase) — pas de lien à ouvrir sur le téléphone.";
+
+  server.registerTool('lazypo_bpmn', {
+    title: 'Créer un BPMN à partir d\'un processus dicté',
+    description: QUAND +
+      "Crée (ou remplace, avec « id ») un diagramme BPMN 2.0 à partir d'un processus DICTÉ : tu donnes la structure — les éléments (début, tâches, décisions, fins…) et les flux entre eux — le serveur écrit le BPMN et le met en page tout seul. " +
+      "Le diagramme devient lisible sur le téléphone dans LazyPO (page Dépôt) et exportable en .bpmn pour Camunda Modeler ; effet invisible pour toi : seule cette page le montre. Ne jamais écrire le XML soi-même, ne jamais inventer d'étapes : seulement ce que l'utilisateur a dit. " +
+      "Avant d'appeler : reformuler le processus en quelques étapes et le faire confirmer — une décision a deux branches nommées (oui / non), chaque tâche un verbe à l'infinitif, un rôle (voie) quand l'utilisateur nomme qui fait quoi. " +
+      "Rend l'état après : éléments et flux écrits, avertissements (branche sans libellé, élément sans sortie), le lien à ouvrir, et l'id à réutiliser pour modifier (renvoyer alors toute la structure, pas seulement le changement).",
+    inputSchema: {
+      titre: z.string().min(1).max(120).describe('nom du processus, ex. « Traitement d\'une demande client »'),
+      elements: z.array(z.object({
+        id: z.string().min(1).max(40).describe('identifiant court et unique : debut, t1, d1, fin'),
+        type: z.enum(TYPE_NAMES).describe('debut · fin · tache · utilisateur (tâche humaine) · service (automatique) · manuel · script · envoi · reception · decision (une seule branche, XOR) · parallele (toutes les branches, AND) · inclusif (OR) · attente (délai) · message (attendre un message) · evenement'),
+        nom: z.string().max(80).optional().describe('libellé court : « Vérifier la demande » ; pour une décision, la question : « Dossier complet ? »'),
+        voie: z.string().max(40).optional().describe('qui fait l\'étape (couloir) : Client, PO, Système… seulement si l\'utilisateur l\'a dit'),
+      })).min(2).max(60),
+      flux: z.array(z.object({
+        de: z.string().min(1).max(40), vers: z.string().min(1).max(40),
+        nom: z.string().max(60).optional().describe('libellé d\'une branche après une décision : oui, non, montant > 1 000 €'),
+      })).min(1).max(120),
+      id: z.string().uuid().optional().describe('id d\'un BPMN déjà déposé, pour le remplacer'),
+    },
+    annotations: WRITE,
+  }, async ({ titre, elements, flux, id }) => run(ctx, async user => {
+    const r = await makeBpmn(titre, { elements, flux });
+    if (!r.ok) return `BPMN refusé, rien n'a été écrit :\n• ` + r.errors.join('\n• ') + (r.warnings.length ? `\nÀ corriger aussi : ${r.warnings.join(' ; ')}` : '');
+    const saved = await saveDoc(sb, user.id, { id, title: titre, format: 'bpmn', content: r.xml, meta: { structure: r.structure, warnings: r.warnings, counts: r.counts } });
+    return `BPMN « ${titre} » ${saved.created ? 'déposé' : 'remplacé'} : ${plural(r.counts.elements, 'élément')}, ${plural(r.counts.flows, 'flux')}${r.counts.lanes ? `, ${plural(r.counts.lanes, 'rôle')}` : ''}, mis en page automatiquement.` +
+      (r.warnings.length ? `\nAvertissements : ${r.warnings.join(' ; ')}.` : '') +
+      (saved.where === 'local' ? LOCAL_ONLY : `\nÀ ouvrir sur le téléphone : ${docUrl(cfg, saved.id)}`) +
+      `\nPour le modifier : rappeler lazypo_bpmn avec id ${saved.id} et la structure complète.`;
+  }));
+
+  server.registerTool('lazypo_deposer_document', {
+    title: 'Déposer un document dans LazyPO',
+    description: QUAND +
+      "Dépose dans LazyPO (page Dépôt) un document écrit pendant la conversation, pour que l'utilisateur le retrouve sur le téléphone ou l'ordinateur : une note (md), un schéma Mermaid (mmd), un SQL, un JSON, un CSV, un SVG, un XML ou un texte. " +
+      "Pour un processus BPMN, préférer lazypo_bpmn (le serveur dessine) ; un BPMN fourni ici en XML sans mise en page est mis en page si possible. " +
+      "Effet invisible pour toi : seule la page Dépôt le montre. Avec « id », remplace un document existant. Rend l'état après : le titre, le format, la taille, le lien, l'id.",
+    inputSchema: {
+      titre: z.string().min(1).max(120),
+      format: z.enum(FORMATS).describe('md · mmd (Mermaid) · txt · sql · json · csv · xml · svg · bpmn'),
+      contenu: z.string().min(1).max(MAX_CONTENT),
+      id: z.string().uuid().optional().describe('id d\'un document déjà déposé, pour le remplacer'),
+    },
+    annotations: WRITE,
+  }, async ({ titre, format, contenu, id }) => run(ctx, async user => {
+    let content = contenu, note = '';
+    if (format === 'bpmn') {
+      if (!looksLikeBpmn(content)) return `Refusé : ce contenu n'est pas un BPMN (pas de <definitions> / <process>). Rien n'a été écrit. Pour un processus dicté, utiliser lazypo_bpmn.`;
+      if (!hasDiagram(content)) {
+        try { content = (await layoutBpmn(content)).xml; note = ' Mise en page ajoutée automatiquement.'; }
+        catch (e) { note = ` Sans mise en page (${e.message}) : exportable, mais rien à dessiner dans la page.`; }
+      }
+    }
+    const saved = await saveDoc(sb, user.id, { id, title: titre, format, content });
+    return `Document « ${titre} » (${format}, ${content.length} caractères) ${saved.created ? 'déposé' : 'remplacé'}.${note}` +
+      (saved.where === 'local' ? LOCAL_ONLY : `\nÀ ouvrir : ${docUrl(cfg, saved.id)}`) + `\nid ${saved.id}.`;
+  }));
+
+  server.registerTool('lazypo_documents', {
+    title: 'Les documents déposés',
+    description: QUAND +
+      "Liste les documents déposés (les 10 plus récents, ou ceux dont le titre contient « recherche »), ou rend UN document en entier avec « id » : pour un BPMN créé par lazypo_bpmn, sa structure (éléments, flux) prête à être modifiée puis renvoyée à lazypo_bpmn ; pour les autres, le contenu. " +
+      "Dit explicitement quand il n'y a rien. Ne modifie rien.",
+    inputSchema: {
+      recherche: z.string().max(80).optional().describe('un bout du titre'),
+      id: z.string().uuid().optional().describe('pour lire un document précis'),
+    },
+    annotations: READ,
+  }, async ({ recherche, id }) => run(ctx, async user => {
+    if (id) {
+      const d = await readDoc(sb, user.id, id);
+      if (!d) return `Aucun document avec l'id ${id}.`;
+      const head = `« ${d.title} » — ${d.format}, ${shortDate(d.updated_at)} ${clock(d.updated_at)}, ${d.content.length} caractères` + (d.where === 'local' ? ' (sur le Mac seulement)' : ` — ${docUrl(cfg, d.id)}`);
+      if (d.format === 'bpmn' && d.meta && d.meta.structure) {
+        return head + `\nStructure dictée (à renvoyer complète à lazypo_bpmn avec id ${d.id} pour modifier) :\n` + JSON.stringify(d.meta.structure) +
+          (d.meta.warnings && d.meta.warnings.length ? `\nAvertissements à l'époque : ${d.meta.warnings.join(' ; ')}` : '');
+      }
+      const LIMIT = 20000;
+      return head + '\n' + (d.content.length > LIMIT ? d.content.slice(0, LIMIT) + `\n… (tronqué : ${d.content.length - LIMIT} caractères de plus)` : d.content);
+    }
+    const { rows, where } = await listDocs(sb, user.id, { limit: 10, search: recherche || '' });
+    return formatDocList(rows, cfg, where);
   }));
 
   server.registerTool('lazypo_marquer_mot', {
